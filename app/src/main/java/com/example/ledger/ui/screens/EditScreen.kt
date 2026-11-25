@@ -18,8 +18,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Button
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -47,9 +45,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ledger.data.LedgerTransaction
-import com.example.ledger.data.ShareInput
-import com.example.ledger.data.ShareMath
-import com.example.ledger.ui.AddPersonDialog
 import com.example.ledger.ui.LedgerViewModel
 import com.example.ledger.ui.ScreenHeader
 import com.example.ledger.util.formatMoney
@@ -69,25 +64,11 @@ private const val KIND_EXPENSE = "expense"
 private const val KIND_INCOME = "income"
 private const val KIND_TRANSFER = "transfer"
 
-/** 選到的代墊對象與各自金額,存成 "id:金額,id:金額"(rememberSaveable 只能存簡單型別)。 */
-private fun decodePicked(text: String): LinkedHashMap<Long, String> {
-    val out = LinkedHashMap<Long, String>()
-    text.split(',').filter { it.contains(':') }.forEach {
-        val (id, amt) = it.split(':', limit = 2)
-        id.toLongOrNull()?.let { key -> out[key] = amt }
-    }
-    return out
-}
-
-private fun encodePicked(map: Map<Long, String>): String =
-    map.entries.joinToString(",") { "${it.key}:${it.value}" }
-
 @Composable
 fun EditScreen(vm: LedgerViewModel, id: Long, onDone: () -> Unit) {
     val zone = remember { ZoneId.systemDefault() }
     val categories by vm.categories.collectAsStateWithLifecycle()
     val accounts by vm.accounts.collectAsStateWithLifecycle()
-    val people by vm.people.collectAsStateWithLifecycle()
 
     // 從語音記帳帶過來的草稿(只有「新增」才會有,取走一次)
     val draft = remember { if (id == 0L) vm.consumeDraft() else null }
@@ -106,13 +87,9 @@ fun EditScreen(vm: LedgerViewModel, id: Long, onDone: () -> Unit) {
     var accountId by rememberSaveable { mutableStateOf<Long?>(draft?.accountId) }
     var toAccountId by rememberSaveable { mutableStateOf<Long?>(draft?.transferToAccountId) }
     var shareText by rememberSaveable { mutableStateOf(draft?.myShare?.toString() ?: "") }
-    // 代墊:開關 + 選到的人與各自金額
-    var shared by rememberSaveable { mutableStateOf(draft?.myShare != null) }
-    var peopleText by rememberSaveable { mutableStateOf("") }
-    var showAddPerson by remember { mutableStateOf(false) }
+    var owedBy by rememberSaveable { mutableStateOf("") }
     // 編輯「代墊收回」時要原樣保留它指向的那筆支出
     var settlesId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var settlesPersonId by rememberSaveable { mutableStateOf<Long?>(null) }
     var dateText by rememberSaveable { mutableStateOf((draft?.date ?: LocalDate.now()).toString()) }
     var timeText by rememberSaveable { mutableStateOf(LocalTime.now().withSecond(0).withNano(0).toString()) }
     var note by rememberSaveable { mutableStateOf(draft?.note ?: "") }
@@ -135,12 +112,8 @@ fun EditScreen(vm: LedgerViewModel, id: Long, onDone: () -> Unit) {
                 accountId = t.accountId
                 toAccountId = t.transferToAccountId
                 shareText = t.myShare?.toString() ?: ""
-                shared = t.myShare != null
-                peopleText = encodePicked(
-                    vm.loadShares(id).associate { it.personId to it.amount.toString() }
-                )
+                owedBy = t.owedBy ?: ""
                 settlesId = t.settlesId
-                settlesPersonId = t.settlesPersonId
                 dateText = t.timestamp.toLocalDate(zone).toString()
                 timeText = Instant.ofEpochMilli(t.timestamp).atZone(zone).toLocalTime()
                     .withSecond(0).withNano(0).toString()
@@ -167,29 +140,9 @@ fun EditScreen(vm: LedgerViewModel, id: Long, onDone: () -> Unit) {
         ?: accounts.firstOrNull { it.id != selectedAccount }?.id
     val amount = amountText.toLongOrNull() ?: 0L
     val share = shareText.toLongOrNull()
-    val sharedActive = shared && kind == KIND_EXPENSE && !isSettlement
-    val picked = decodePicked(peopleText)
-    val pickedIds = picked.keys.filter { id -> people.any { it.id == id } }
-    val pickedSum = pickedIds.sumOf { picked[it]?.toLongOrNull() ?: 0L }
-    // 我的份:有填就用填的;沒填但選了人,就是實付扣掉大家的份
-    val finalShare: Long? = when {
-        !sharedActive -> null
-        share != null -> share
-        pickedIds.isNotEmpty() -> (amount - pickedSum).coerceAtLeast(0L)
-        else -> null
-    }
-    val owed = if (finalShare != null && finalShare < amount) amount - finalShare else 0L
-    val unassigned = ShareMath.unassigned(amount, finalShare, pickedSum)
-    val shareOk = !sharedActive || pickedSum <= (if (finalShare != null) amount - finalShare else amount)
+    val owed = if (share != null && share < amount) amount - share else 0L
 
-    /** 把要分的錢平均分給目前選到的人(沒填我的份時,連我自己一起平分)。 */
-    fun evenSplit(ids: List<Long>): String {
-        val parts = if (share != null) ShareMath.split((amount - share).coerceAtLeast(0L), ids.size)
-        else ShareMath.splitWithMe(amount, ids.size)
-        return encodePicked(ids.zip(parts.map { it.toString() }).toMap())
-    }
-
-    val canSave = amount > 0 && selectedAccount != null && shareOk && when {
+    val canSave = amount > 0 && selectedAccount != null && when {
         isSettlement -> true
         isTransfer -> selectedTo != null && selectedTo != selectedAccount
         else -> selectedCategory != null
@@ -276,73 +229,28 @@ fun EditScreen(vm: LedgerViewModel, id: Long, onDone: () -> Unit) {
                 )
             }
 
-            // 代墊:有朋友分擔時打開,選是誰、各欠多少(都可以之後再補)
+            // 代墊:朋友分擔時才需要填
             if (kind == KIND_EXPENSE && !isSettlement) {
-                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Text("有人分擔(代墊)", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                    Switch(checked = shared, onCheckedChange = { shared = it })
-                }
-            }
-            if (sharedActive) {
                 OutlinedTextField(
                     value = shareText,
                     onValueChange = { s -> shareText = s.filter(Char::isDigit).take(9) },
-                    label = { Text("我的份(選填)") },
+                    label = { Text("我的份(選填,有人分擔時填)") },
                     prefix = { Text("NT$ ") },
                     singleLine = true,
-                    supportingText = { Text("沒填的話,會用「實付 − 大家的份」算我的份") },
+                    supportingText = {
+                        if (owed > 0) Text("統計只算 ${formatMoney(share ?: 0L)},待收 ${formatMoney(owed)}")
+                    },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Text("誰欠我(可多選,也可以之後再補)", style = MaterialTheme.typography.labelLarge)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    people.forEach { p ->
-                        FilterChip(
-                            selected = p.id in pickedIds,
-                            onClick = {
-                                val ids = if (p.id in pickedIds) pickedIds - p.id else pickedIds + p.id
-                                peopleText = evenSplit(ids)
-                            },
-                            label = { Text(p.name) },
-                        )
-                    }
-                    AssistChip(onClick = { showAddPerson = true }, label = { Text("＋新增") })
-                }
-                pickedIds.forEach { pid ->
-                    val name = people.firstOrNull { it.id == pid }?.name ?: return@forEach
+                if (owed > 0) {
                     OutlinedTextField(
-                        value = picked[pid] ?: "",
-                        onValueChange = { v ->
-                            peopleText = encodePicked(picked.toMutableMap().also { it[pid] = v.filter(Char::isDigit).take(9) })
-                        },
-                        label = { Text("$name 欠") },
-                        prefix = { Text("NT$ ") },
+                        value = owedBy,
+                        onValueChange = { owedBy = it.take(40) },
+                        label = { Text("誰欠我(選填,可以之後再補)") },
                         singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        supportingText = { Text("沒空填也沒關係,30 分鐘後還沒補,會通知提醒你") },
                         modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                if (pickedIds.size >= 2) {
-                    TextButton(onClick = { peopleText = evenSplit(pickedIds) }) { Text("重新平均分攤") }
-                }
-                if (!shareOk) {
-                    Text(
-                        "大家的份加起來超過可分攤的金額了",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                } else if (finalShare != null) {
-                    Text(
-                        "我的份 ${formatMoney(finalShare)}(統計只算這個)" +
-                            if (unassigned > 0) ",還有 ${formatMoney(unassigned)} 沒指定是誰,30 分鐘後會提醒你補" else "",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    Text(
-                        "選了人或填了我的份,才會算成待收款",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -364,6 +272,7 @@ fun EditScreen(vm: LedgerViewModel, id: Long, onDone: () -> Unit) {
                 onClick = {
                     val ts = LocalDateTime.of(LocalDate.parse(dateText), LocalTime.parse(timeText))
                         .atZone(zone).toInstant().toEpochMilli()
+                    val expenseWithShare = kind == KIND_EXPENSE && !isSettlement
                     vm.save(
                         LedgerTransaction(
                             id = id,
@@ -374,14 +283,11 @@ fun EditScreen(vm: LedgerViewModel, id: Long, onDone: () -> Unit) {
                             accountId = selectedAccount!!,
                             timestamp = ts,
                             note = note.trim(),
-                            myShare = finalShare,
+                            myShare = if (expenseWithShare) share else null,
+                            owedBy = if (expenseWithShare && owed > 0) owedBy.trim().ifEmpty { null } else null,
                             transferToAccountId = if (isTransfer) selectedTo else null,
                             settlesId = settlesId,
-                            settlesPersonId = settlesPersonId,
-                        ),
-                        shares = if (sharedActive) {
-                            pickedIds.map { ShareInput(it, picked[it]?.toLongOrNull() ?: 0L) }
-                        } else emptyList(),
+                        )
                     )
                     onDone()
                 },
@@ -389,22 +295,6 @@ fun EditScreen(vm: LedgerViewModel, id: Long, onDone: () -> Unit) {
             ) { Text("儲存") }
             Spacer(Modifier.height(24.dp))
         }
-    }
-
-    if (showAddPerson) {
-        AddPersonDialog(
-            onDismiss = { showAddPerson = false },
-            onAdd = { name ->
-                showAddPerson = false
-                vm.addPerson(name) { newId ->
-                    // 新增的人直接選起來,並重新平分
-                    if (newId != null) {
-                        val cur = decodePicked(peopleText).keys.toList()
-                        if (newId !in cur) peopleText = evenSplit(cur + newId)
-                    }
-                }
-            },
-        )
     }
 
     if (showPicker) {

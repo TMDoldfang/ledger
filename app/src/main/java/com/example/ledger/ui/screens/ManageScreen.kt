@@ -38,7 +38,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ledger.data.AccountType
-import com.example.ledger.ui.AddPersonDialog
 import com.example.ledger.ui.LedgerViewModel
 import com.example.ledger.ui.ScreenHeader
 import com.example.ledger.ui.SectionTitle
@@ -52,8 +51,6 @@ fun ManageScreen(vm: LedgerViewModel, updateVm: UpdateViewModel) {
     val categories by vm.categories.collectAsStateWithLifecycle()
     var showAccountDialog by remember { mutableStateOf(false) }
     var showCategoryDialog by remember { mutableStateOf(false) }
-    val people by vm.people.collectAsStateWithLifecycle()
-    var showPersonDialog by remember { mutableStateOf(false) }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item { ScreenHeader("管理") }
@@ -105,29 +102,6 @@ fun ManageScreen(vm: LedgerViewModel, updateVm: UpdateViewModel) {
             }
         }
 
-        item { SectionTitle("代墊對象", "新增") { showPersonDialog = true } }
-        if (people.isEmpty()) {
-            item {
-                Text(
-                    "還沒有人。記代墊時可以直接新增,也可以在這裡先加。",
-                    Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        items(people, key = { "p${it.id}" }) { p ->
-            Row(
-                Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(p.name, Modifier.weight(1f))
-                IconButton(onClick = { vm.deletePerson(p.id) }) {
-                    Icon(Icons.Filled.Delete, contentDescription = "刪除代墊對象")
-                }
-            }
-        }
-
         item { SectionTitle("關於與更新") }
         item { UpdateSection(updateVm) }
     }
@@ -138,15 +112,6 @@ fun ManageScreen(vm: LedgerViewModel, updateVm: UpdateViewModel) {
             onConfirm = { name, type, initial ->
                 vm.addAccount(name, type, initial)
                 showAccountDialog = false
-            },
-        )
-    }
-    if (showPersonDialog) {
-        AddPersonDialog(
-            onDismiss = { showPersonDialog = false },
-            onAdd = { name ->
-                vm.addPerson(name)
-                showPersonDialog = false
             },
         )
     }

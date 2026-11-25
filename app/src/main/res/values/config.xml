@@ -5,5 +5,5 @@
         倉庫必須是 Public;App 會讀這個倉庫「最新的 Release」。
         還沒改的時候,「管理」頁的更新區塊會提示尚未設定。
     -->
-    <string name="update_repo" translatable="false">TMDoldfang/ledger</string>
+    <string name="update_repo" translatable="false">YOUR_GITHUB_ACCOUNT/ledger</string>
 </resources>

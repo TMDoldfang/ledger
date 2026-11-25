@@ -23,10 +23,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.foundation.clickable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,8 +38,6 @@ import com.example.ledger.data.CategorySum
 import com.example.ledger.data.MonthPoint
 import com.example.ledger.ui.LedgerViewModel
 import com.example.ledger.ui.MonthSwitcher
-import com.example.ledger.ui.ReceivablesSheet
-import com.example.ledger.ui.byPerson
 import com.example.ledger.ui.ScreenHeader
 import com.example.ledger.ui.SectionTitle
 import com.example.ledger.ui.theme.ChartPalette
@@ -56,8 +50,6 @@ import kotlin.math.max
 fun StatsScreen(vm: LedgerViewModel) {
     val month by vm.month.collectAsStateWithLifecycle()
     val stats by vm.stats.collectAsStateWithLifecycle()
-    val receivables by vm.receivables.collectAsStateWithLifecycle()
-    var showReceivables by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         ScreenHeader("統計")
@@ -68,48 +60,6 @@ fun StatsScreen(vm: LedgerViewModel) {
                 StatCell("支出", formatMoney(stats.totals.expense), expenseColor(), Modifier.weight(1f))
                 StatCell("收入", formatMoney(stats.totals.income), incomeColor(), Modifier.weight(1f))
                 StatCell("結餘", formatMoney(stats.totals.balance), MaterialTheme.colorScheme.onSurface, Modifier.weight(1f))
-            }
-        }
-
-        // 待收代墊:不分月份,沒收回就一直在;點進去看每個人、每一筆的金額
-        if (receivables.isNotEmpty()) {
-            val groups = receivables.byPerson()
-            val peak = max(1L, groups.maxOf { it.total }).toFloat()
-            Card(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-                    .clickable { showReceivables = true },
-            ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("待收代墊(全部)", style = MaterialTheme.typography.titleSmall)
-                        Text(formatMoney(receivables.sumOf { it.outstanding }), style = MaterialTheme.typography.titleMedium)
-                    }
-                    groups.forEachIndexed { i, g ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(g.name, Modifier.width(88.dp), style = MaterialTheme.typography.bodySmall)
-                            Box(
-                                Modifier.weight(1f).height(10.dp).clip(RoundedCornerShape(5.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                            ) {
-                                Box(
-                                    Modifier.fillMaxHeight().fillMaxWidth(g.total / peak)
-                                        .background(ChartPalette[i % ChartPalette.size]),
-                                )
-                            }
-                            Text(
-                                formatMoney(g.total),
-                                Modifier.width(84.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                textAlign = TextAlign.End,
-                            )
-                        }
-                    }
-                    Text(
-                        "點開看每個人、每一筆的明細",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
             }
         }
 
@@ -143,7 +93,6 @@ fun StatsScreen(vm: LedgerViewModel) {
         }
         Spacer(Modifier.height(24.dp))
     }
-    if (showReceivables) ReceivablesSheet(vm = vm, onDismiss = { showReceivables = false })
 }
 
 @Composable

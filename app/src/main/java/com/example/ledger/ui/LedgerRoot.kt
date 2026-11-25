@@ -36,7 +36,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ledger.update.UpdateState
@@ -81,13 +80,26 @@ fun LedgerRoot(vm: LedgerViewModel) {
         }
     }
 
-    // 線上更新:開 App、或從背景回來時背景檢查;有新版本就自動跳出視窗(細節也在「管理」頁)
+    // 線上更新:啟動時背景檢查一次,有新版就跳提示;細節在「管理」頁
     val updateVm: UpdateViewModel = viewModel()
-    LifecycleResumeEffect(Unit) {
-        updateVm.check(silent = true)
-        onPauseOrDispose { }
+    val updateState by updateVm.state.collectAsStateWithLifecycle()
+    var announced by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) { updateVm.check(silent = true) }
+    LaunchedEffect(updateState) {
+        val s = updateState
+        if (s is UpdateState.Available && !announced) {
+            announced = true
+            val result = snackbar.showSnackbar("有新版本 ${s.info.versionName}", actionLabel = "查看")
+            if (result == SnackbarResult.ActionPerformed) {
+                nav.navigate("manage") {
+                    popUpTo("home") { saveState = true }
+                    launchSingleTop = true
+                    restoreState = true
+                }
+            }
+        }
     }
-    UpdateDialog(updateVm)
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
