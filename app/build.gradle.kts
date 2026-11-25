@@ -20,17 +20,23 @@ android {
     }
 
     // 線上更新要能「覆蓋安裝」,每個版本都必須用同一把金鑰簽章。
-    // 預設用專案裡的 keystore/ledger.jks(個人專案用;金鑰與密碼是公開在 Repo 裡的)。
-    // 之後想改用 GitHub Secrets,只要在 Actions 設定下面四個環境變數,不用改這個檔案。
+    // 金鑰與密碼不放在 Repo:GitHub Actions 讀 Secrets,本機讀 local.properties。
     signingConfigs {
         create("shared") {
-            storeFile = file(System.getenv("LEDGER_STORE_FILE") ?: "../keystore/ledger.jks")
-            storePassword = System.getenv("LEDGER_STORE_PASSWORD") ?: "ledger-personal"
-            keyAlias = System.getenv("LEDGER_KEY_ALIAS") ?: "ledger"
-            keyPassword = System.getenv("LEDGER_KEY_PASSWORD") ?: "ledger-personal"
+            // 金鑰資訊來自環境變數(GitHub Actions)或 local.properties(本機,不會上傳)
+            val localProps = java.util.Properties().apply {
+                val f = rootProject.file("local.properties")
+                if (f.exists()) f.inputStream().use { load(it) }
+            }
+            fun secret(env: String, key: String): String? =
+                System.getenv(env) ?: localProps.getProperty(key)
+
+            storeFile = file(secret("LEDGER_STORE_FILE", "ledger.storeFile") ?: "../keystore/ledger.jks")
+            storePassword = secret("LEDGER_STORE_PASSWORD", "ledger.storePassword")
+            keyAlias = secret("LEDGER_KEY_ALIAS", "ledger.keyAlias")
+            keyPassword = secret("LEDGER_KEY_PASSWORD", "ledger.keyPassword")
         }
     }
-
     buildTypes {
         debug {
             // debug 也用同一把金鑰,這樣從 Android Studio 裝的版本之後可以被線上更新覆蓋
