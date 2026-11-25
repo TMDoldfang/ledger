@@ -1,5 +1,6 @@
 package com.example.ledger.data
 
+import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -7,6 +8,8 @@ class LedgerRepository(private val db: LedgerDatabase) {
     private val transactions = db.transactionDao()
     private val accountDao = db.accountDao()
     private val categoryDao = db.categoryDao()
+    private val personDao = db.personDao()
+    private val shareDao = db.shareDao()
 
     val accounts: Flow<List<AccountWithBalance>> = accountDao.observeWithBalance()
     val categories: Flow<List<Category>> = categoryDao.observeAll()
@@ -16,9 +19,29 @@ class LedgerRepository(private val db: LedgerDatabase) {
 
     suspend fun getTransaction(id: Long): LedgerTransaction? = transactions.getById(id)
 
-    val receivables: Flow<List<Receivable>> = transactions.observeReceivables()
+    /** 待收款(不分月份):每個人、每筆代墊還沒收回的金額;personId 為 null 是還沒指定是誰的部分。 */
+    val receivables: Flow<List<ReceivableDetail>> = transactions.observeReceivables()
 
-    suspend fun save(t: LedgerTransaction) {
+    val people: Flow<List<Person>> = personDao.observeAll()
+
+    suspend fun sharesOf(transactionId: Long): List<Share> = shareDao.forTransaction(transactionId)
+
+    /** 新增代墊對象;名字已存在就直接回傳舊的 id,空白回傳 null。 */
+    suspend fun addPerson(name: String): Long? {
+        val n = name.trim().take(20)
+        if (n.isEmpty()) return null
+        val id = personDao.insert(Person(name = n))
+        return if (id > 0) id else personDao.findId(n)
+    }
+
+    /** 這個人有分攤或收回紀錄就不能刪,回傳 false。 */
+    suspend fun deletePerson(id: Long): Boolean {
+        if (personDao.usageCount(id) > 0) return false
+        personDao.deleteById(id)
+        return true
+    }
+
+    suspend fun save(t: LedgerTransaction, shares: List<ShareInput> = emptyList()) {
         val clean = when {
             // 轉帳:固定歸「轉帳」分類、算付款方的支出側,不能同時有「我的份」
             t.transferToAccountId != null -> t.copy(
@@ -27,15 +50,26 @@ class LedgerRepository(private val db: LedgerDatabase) {
                 myShare = null,
                 owedBy = null,
                 settlesId = null,
+                settlesPersonId = null,
             )
-            // 沒有真的分攤(我的份 ≥ 實付,或收入)就不要留「我的份」與「誰欠我」
+            // 沒有真的分攤(我的份 ≥ 實付,或收入)就不要留「我的份」
             t.myShare != null && (!t.isExpense || t.myShare >= t.amount) -> t.copy(myShare = null, owedBy = null)
-            t.myShare == null -> t.copy(owedBy = null)
-            else -> t.copy(owedBy = t.owedBy?.trim()?.ifEmpty { null })
+            else -> t.copy(owedBy = null)
         }
-        val id = if (clean.id == 0L) transactions.insert(clean) else clean.id.also { transactions.update(clean) }
-        // 有待收款、卻還沒填「誰欠我」:請外面排一個提醒(30 分鐘後還沒補就通知)
-        if (clean.myShare != null && clean.owedBy == null) onNeedsOwedBy?.invoke(id)
+        val owed = if (clean.myShare != null) clean.amount - clean.myShare else 0L
+        val normalized = ShareMath.normalize(shares, owed)
+        val id = db.withTransaction {
+            val savedId = if (clean.id == 0L) transactions.insert(clean) else clean.id.also { transactions.update(clean) }
+            shareDao.deleteForTransaction(savedId)
+            if (normalized.isNotEmpty()) {
+                shareDao.insertAll(normalized.map { Share(transactionId = savedId, personId = it.personId, amount = it.amount) })
+            }
+            savedId
+        }
+        // 還有一部分沒指定是誰:請外面排一個提醒(30 分鐘後還沒補就通知)
+        if (ShareMath.unassigned(clean.amount, clean.myShare, normalized.sumOf { it.amount }) > 0) {
+            onNeedsOwedBy?.invoke(id)
+        }
         // 存完之後讓外面做檢查(例如月額上限);檢查失敗不能影響已存好的帳目
         runCatching { onSaved?.invoke() }
     }
@@ -54,20 +88,15 @@ class LedgerRepository(private val db: LedgerDatabase) {
     suspend fun hasInvestTransfer(start: Long, end: Long): Boolean =
         transactions.countInvestTransfers(start, end) > 0
 
-    /** 事後補上「誰欠我」。 */
-    suspend fun setOwedBy(id: Long, names: String) {
-        transactions.setOwedBy(id, names.trim().ifEmpty { null })
-    }
-
     /** 由 LedgerApp 設定:新增或修改了還沒填「誰欠我」的代墊時呼叫,參數是帳目 id。 */
     var onNeedsOwedBy: ((Long) -> Unit)? = null
 
     /**
-     * 朋友轉錢給我:記一筆「代墊收回」收入到指定帳戶,沖銷待收款。
+     * 朋友轉錢給我:記一筆「代墊收回」收入到指定帳戶,沖銷這個人(personId 為 null = 未指定的部分)在這筆代墊的待收款。
      * 它不算收入(統計不會多出一筆收入),但帳戶餘額會增加。
      */
-    suspend fun settle(receivableId: Long, amount: Long, accountId: Long, timestamp: Long): Boolean {
-        val original = transactions.getById(receivableId) ?: return false
+    suspend fun settle(txId: Long, personId: Long?, amount: Long, accountId: Long, timestamp: Long): Boolean {
+        val original = transactions.getById(txId) ?: return false
         val categoryId = categoryDao.findId(SystemNames.SETTLEMENT, false) ?: return false
         if (amount <= 0) return false
         transactions.insert(
@@ -78,10 +107,27 @@ class LedgerRepository(private val db: LedgerDatabase) {
                 accountId = accountId,
                 timestamp = timestamp,
                 note = original.note.ifBlank { "代墊收回" },
-                settlesId = receivableId,
+                settlesId = txId,
+                settlesPersonId = personId,
             )
         )
         return true
+    }
+
+    /** 把「還沒指定是誰」的金額分一部分給某個人(最多到未指定的餘額)。 */
+    suspend fun assignShare(txId: Long, personId: Long, amount: Long): Boolean = db.withTransaction {
+        val t = transactions.getById(txId) ?: return@withTransaction false
+        val existing = shareDao.forTransaction(txId)
+        val left = ShareMath.unassigned(t.amount, t.myShare, existing.sumOf { it.amount })
+        val give = minOf(amount, left)
+        if (give <= 0) return@withTransaction false
+        val merged = ShareMath.normalize(
+            existing.map { ShareInput(it.personId, it.amount) } + ShareInput(personId, give),
+            t.amount - (t.myShare ?: t.amount),
+        )
+        shareDao.deleteForTransaction(txId)
+        shareDao.insertAll(merged.map { Share(transactionId = txId, personId = it.personId, amount = it.amount) })
+        true
     }
 
     suspend fun deleteTransaction(id: Long) = transactions.deleteById(id)

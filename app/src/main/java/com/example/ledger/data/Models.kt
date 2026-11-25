@@ -51,19 +51,24 @@ data class TransactionItem(
     val countsInStats: Boolean get() = !isTransfer && !isSettlement
 }
 
-/** 待收款:我先墊了、朋友還沒轉給我的部分。 */
-data class Receivable(
-    val id: Long,
-    val amount: Long,
+/**
+ * 待收款的一列:某筆代墊裡「某個人」還沒還的錢。
+ * [personId] 為 null 代表「還沒指定是誰」的那一部分。不分月份,沒收回就一直在。
+ */
+data class ReceivableDetail(
+    val txId: Long,
+    val personId: Long?,
+    val personName: String?,
+    val txAmount: Long,
     val myShare: Long,
     val note: String,
-    /** 誰欠我;還沒補就是 null */
-    val owedBy: String?,
     val timestamp: Long,
     val categoryName: String,
     val categoryIcon: String,
     val accountName: String,
-    /** 還沒收回的金額 */
+    /** 這個人(或未指定)原本該付的 */
+    val shareAmount: Long,
+    /** 還沒收回的 */
     val outstanding: Long,
 )
 
