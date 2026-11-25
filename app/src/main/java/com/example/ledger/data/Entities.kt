@@ -61,10 +61,48 @@ data class LedgerTransaction(
      * 統計只算 300,其餘 900 變成「待收款」,等朋友轉帳。
      */
     val myShare: Long? = null,
-    /** 代墊時「誰欠我」,可以事後再補(記帳當下沒空填也沒關係)。 */
+    /** 已停用(舊版的「誰欠我」文字);改用 shares 表記錄每個人欠多少。欄位保留是為了資料庫相容。 */
     val owedBy: String? = null,
     /** 不為 null 代表這是轉帳:從 accountId 轉到這個帳戶,不算收入也不算支出(例:繳卡費、投資 0050)。 */
     val transferToAccountId: Long? = null,
     /** 不為 null 代表這是一筆「代墊收回」:朋友轉錢給我,用來沖銷該筆支出的待收款,不算收入。 */
     val settlesId: Long? = null,
+    /** 代墊收回時,是哪個人還的;null = 還沒指定是誰的那一部分。 */
+    val settlesPersonId: Long? = null,
+)
+
+/** 代墊對象(朋友)。名字不能重複。 */
+@Entity(tableName = "people", indices = [Index(value = ["name"], unique = true)])
+data class Person(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+)
+
+/**
+ * 一筆代墊裡,某個人該付多少。總和 ≤ 實付 − 我的份;還沒分配到人的差額視為「未指定」。
+ * 刪掉帳目時一併刪除;有分攤紀錄的人不能刪。
+ */
+@Entity(
+    tableName = "shares",
+    foreignKeys = [
+        ForeignKey(
+            entity = LedgerTransaction::class,
+            parentColumns = ["id"],
+            childColumns = ["transactionId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = Person::class,
+            parentColumns = ["id"],
+            childColumns = ["personId"],
+            onDelete = ForeignKey.RESTRICT,
+        ),
+    ],
+    indices = [Index("transactionId"), Index("personId")],
+)
+data class Share(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val transactionId: Long,
+    val personId: Long,
+    val amount: Long,
 )

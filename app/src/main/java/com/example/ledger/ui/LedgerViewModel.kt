@@ -8,6 +8,8 @@ import com.example.ledger.data.LedgerRepository
 import com.example.ledger.data.LedgerTransaction
 import com.example.ledger.data.MonthPoint
 import com.example.ledger.data.MonthTotals
+import com.example.ledger.data.Share
+import com.example.ledger.data.ShareInput
 import com.example.ledger.data.StatsState
 import com.example.ledger.data.SystemNames
 import com.example.ledger.data.TransactionItem
@@ -44,6 +46,9 @@ class LedgerViewModel(private val repo: LedgerRepository) : ViewModel() {
         .map { list -> list.filter { it.name !in SystemNames.HIDDEN_CATEGORIES } }
         .stateIn(viewModelScope, whileSubscribed, emptyList())
     val accounts = repo.accounts.stateIn(viewModelScope, whileSubscribed, emptyList())
+
+    /** 代墊對象。 */
+    val people = repo.people.stateIn(viewModelScope, whileSubscribed, emptyList())
 
     /** 待收款(朋友還沒轉給我的部分)。 */
     val receivables = repo.receivables.stateIn(viewModelScope, whileSubscribed, emptyList())
@@ -100,20 +105,35 @@ class LedgerViewModel(private val repo: LedgerRepository) : ViewModel() {
 
     suspend fun load(id: Long): LedgerTransaction? = repo.getTransaction(id)
 
-    fun save(t: LedgerTransaction) {
-        viewModelScope.launch { repo.save(t) }
+    fun save(t: LedgerTransaction, shares: List<ShareInput> = emptyList()) {
+        viewModelScope.launch { repo.save(t, shares) }
     }
 
-    /** 事後補上待收款是誰欠的。 */
-    fun setOwedBy(id: Long, names: String) {
-        viewModelScope.launch { repo.setOwedBy(id, names) }
+    suspend fun loadShares(id: Long): List<Share> = repo.sharesOf(id)
+
+    /** 新增代墊對象;[onDone] 收到這個人的 id(名字空白時為 null)。 */
+    fun addPerson(name: String, onDone: (Long?) -> Unit = {}) {
+        viewModelScope.launch { onDone(repo.addPerson(name)) }
     }
 
-    /** 朋友轉來 [amount] 元到 [accountId],沖銷這筆待收款。 */
-    fun settle(receivableId: Long, amount: Long, accountId: Long) {
+    fun deletePerson(id: Long) {
         viewModelScope.launch {
-            val ok = repo.settle(receivableId, amount, accountId, System.currentTimeMillis())
+            if (!repo.deletePerson(id)) messageChannel.send("這個人已有代墊紀錄,無法刪除")
+        }
+    }
+
+    /** 朋友轉來 [amount] 元到 [accountId],沖銷這個人在這筆代墊的待收款。 */
+    fun settle(txId: Long, personId: Long?, amount: Long, accountId: Long) {
+        viewModelScope.launch {
+            val ok = repo.settle(txId, personId, amount, accountId, System.currentTimeMillis())
             messageChannel.send(if (ok) "已記錄收回 NT$$amount" else "收回失敗")
+        }
+    }
+
+    /** 事後指定「未指定」的那一部分是誰欠的。 */
+    fun assign(txId: Long, personId: Long, amount: Long) {
+        viewModelScope.launch {
+            if (!repo.assignShare(txId, personId, amount)) messageChannel.send("指定失敗")
         }
     }
 

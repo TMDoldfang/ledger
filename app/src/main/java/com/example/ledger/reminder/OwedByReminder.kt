@@ -49,9 +49,9 @@ class OwedByWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         if (id == 0L) return Result.success()
 
         val repo = (applicationContext as LedgerApp).repository
-        // 還在待收款清單裡(沒被刪、沒全部收回),而且還沒填「誰欠我」,才需要提醒
-        val receivable = repo.receivables.first().firstOrNull { it.id == id } ?: return Result.success()
-        if (!receivable.owedBy.isNullOrBlank()) return Result.success()
+        // 這筆還有「沒指定是誰」的待收款(沒被刪、沒補完),才需要提醒
+        val receivable = repo.receivables.first().firstOrNull { it.txId == id && it.personId == null }
+            ?: return Result.success()
 
         val ctx = applicationContext
         val allowed = Build.VERSION.SDK_INT < 33 ||
@@ -74,7 +74,7 @@ class OwedByWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         val notification = NotificationCompat.Builder(ctx, OwedByReminder.CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_edit)
             .setContentTitle("還沒填是誰欠的")
-            .setContentText("「$title」待收 ${formatMoney(receivable.outstanding)},點開補上名字")
+            .setContentText("「$title」還有 ${formatMoney(receivable.outstanding)} 沒指定是誰,點開補上")
             .setContentIntent(open)
             .setAutoCancel(true)
             .build()

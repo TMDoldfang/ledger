@@ -40,7 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ledger.data.MonthTotals
-import com.example.ledger.data.Receivable
+import com.example.ledger.data.ReceivableDetail
 import com.example.ledger.reminder.BudgetLogic
 import com.example.ledger.settings.AppSettings
 import com.example.ledger.data.TransactionItem
@@ -179,17 +179,17 @@ private fun BudgetLine(spent: Long) {
 
 /** 首頁的待收款提示;點開看清單、補「誰欠我」、標記已收到。 */
 @Composable
-private fun ReceivableBanner(list: List<Receivable>, onClick: () -> Unit) {
-    val missing = list.count { it.owedBy.isNullOrBlank() }
+private fun ReceivableBanner(list: List<ReceivableDetail>, onClick: () -> Unit) {
+    val missing = list.count { it.personId == null }
     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clickable(onClick = onClick)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
             Text(
-                "待收款 ${formatMoney(list.sumOf { it.outstanding })} · ${list.size} 筆",
+                "待收款 ${formatMoney(list.sumOf { it.outstanding })} · ${list.map { it.txId }.distinct().size} 筆",
                 style = MaterialTheme.typography.titleSmall,
             )
             if (missing > 0) {
                 Text(
-                    "有 $missing 筆還沒填是誰欠的",
+                    "有 $missing 筆還沒指定是誰欠的",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )

@@ -2,6 +2,7 @@ package com.example.ledger.data
 
 import androidx.room.Dao
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
@@ -42,32 +43,50 @@ interface TransactionDao {
     )
     fun observeItems(start: Long, end: Long): Flow<List<TransactionItem>>
 
-    /** 待收款:有「我的份」的支出,實付 − 我的份 − 已收回,還大於 0 的。 */
+    /**
+     * 待收款(不分月份):每一筆代墊裡,每個人還沒還的錢,加上「還沒指定是誰」的差額(personId 為 null)。
+     * 已收回 = 同一筆、同一個人的「代墊收回」總和。
+     */
     @Query(
         """
         SELECT * FROM (
-            SELECT t.id AS id, t.amount AS amount, t.myShare AS myShare, t.note AS note,
-                   t.owedBy AS owedBy, t.timestamp AS timestamp,
+            SELECT t.id AS txId, s.personId AS personId, p.name AS personName,
+                   t.amount AS txAmount, t.myShare AS myShare, t.note AS note, t.timestamp AS timestamp,
                    c.name AS categoryName, c.icon AS categoryIcon, a.name AS accountName,
-                   t.amount - t.myShare - COALESCE(
-                       (SELECT SUM(s.amount) FROM transactions s WHERE s.settlesId = t.id), 0
+                   s.amount AS shareAmount,
+                   s.amount - COALESCE(
+                       (SELECT SUM(x.amount) FROM transactions x
+                        WHERE x.settlesId = t.id AND x.settlesPersonId = s.personId), 0
                    ) AS outstanding
+            FROM shares s
+            JOIN transactions t ON t.id = s.transactionId
+            JOIN people p ON p.id = s.personId
+            JOIN categories c ON c.id = t.categoryId
+            JOIN accounts a ON a.id = t.accountId
+            WHERE t.isExpense = 1 AND t.myShare IS NOT NULL AND t.transferToAccountId IS NULL
+            UNION ALL
+            SELECT t.id AS txId, NULL AS personId, NULL AS personName,
+                   t.amount AS txAmount, t.myShare AS myShare, t.note AS note, t.timestamp AS timestamp,
+                   c.name AS categoryName, c.icon AS categoryIcon, a.name AS accountName,
+                   t.amount - t.myShare - COALESCE((SELECT SUM(s2.amount) FROM shares s2 WHERE s2.transactionId = t.id), 0)
+                       AS shareAmount,
+                   t.amount - t.myShare - COALESCE((SELECT SUM(s2.amount) FROM shares s2 WHERE s2.transactionId = t.id), 0)
+                       - COALESCE((SELECT SUM(x.amount) FROM transactions x
+                                   WHERE x.settlesId = t.id AND x.settlesPersonId IS NULL), 0)
+                       AS outstanding
             FROM transactions t
             JOIN categories c ON c.id = t.categoryId
             JOIN accounts a ON a.id = t.accountId
             WHERE t.isExpense = 1 AND t.myShare IS NOT NULL AND t.transferToAccountId IS NULL
         )
         WHERE outstanding > 0
-        ORDER BY timestamp DESC, id DESC
+        ORDER BY timestamp DESC, txId DESC
         """
     )
-    fun observeReceivables(): Flow<List<Receivable>>
+    fun observeReceivables(): Flow<List<ReceivableDetail>>
 
     @Query("SELECT * FROM transactions WHERE id = :id")
     suspend fun getById(id: Long): LedgerTransaction?
-
-    @Query("UPDATE transactions SET owedBy = :names WHERE id = :id")
-    suspend fun setOwedBy(id: Long, names: String?)
 
     @Insert
     suspend fun insert(transaction: LedgerTransaction): Long
@@ -161,4 +180,44 @@ interface CategoryDao {
 
     @Query("SELECT id FROM categories WHERE name = :name AND isExpense = :isExpense LIMIT 1")
     suspend fun findId(name: String, isExpense: Boolean): Long?
+}
+
+@Dao
+interface PersonDao {
+    @Query("SELECT * FROM people ORDER BY name")
+    fun observeAll(): Flow<List<Person>>
+
+    /** 名字重複時不新增,回傳 -1。 */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(person: Person): Long
+
+    @Query("SELECT id FROM people WHERE name = :name LIMIT 1")
+    suspend fun findId(name: String): Long?
+
+    @Query("DELETE FROM people WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    /** 這個人有沒有任何分攤或收回紀錄(有的話不能刪)。 */
+    @Query(
+        """
+        SELECT (SELECT COUNT(*) FROM shares WHERE personId = :id)
+             + (SELECT COUNT(*) FROM transactions WHERE settlesPersonId = :id)
+        """
+    )
+    suspend fun usageCount(id: Long): Int
+}
+
+@Dao
+interface ShareDao {
+    @Query("SELECT * FROM shares WHERE transactionId = :transactionId ORDER BY id")
+    suspend fun forTransaction(transactionId: Long): List<Share>
+
+    @Insert
+    suspend fun insertAll(shares: List<Share>)
+
+    @Query("DELETE FROM shares WHERE transactionId = :transactionId")
+    suspend fun deleteForTransaction(transactionId: Long)
+
+    @Query("DELETE FROM shares WHERE id = :id")
+    suspend fun deleteById(id: Long)
 }
