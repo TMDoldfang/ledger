@@ -1,3 +1,6 @@
+import java.util.Properties
+
+plugins {
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -24,7 +27,7 @@ android {
     signingConfigs {
         create("shared") {
             // 金鑰資訊來自環境變數(GitHub Actions)或 local.properties(本機,不會上傳)
-            val localProps = java.util.Properties().apply {
+            val localProps = Properties().apply {
                 val f = rootProject.file("local.properties")
                 if (f.exists()) f.inputStream().use { load(it) }
             }
