@@ -1,7 +1,5 @@
 name: Build APK and publish release
 
-# 每次推上 main 就:跑單元測試 → 打包 APK → 建立 GitHub Release。
-# App 內的「檢查更新」就是讀這個 Release(tag 是 v 加執行編號,例如 v12)。
 on:
   push:
     branches: [main]
@@ -24,14 +22,26 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # 用網頁上傳檔案會丟掉執行權限,這裡補上
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      - name: Restore keystore
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > $RUNNER_TEMP/ledger.jks
+
       - name: Unit tests
+        env:
+          LEDGER_STORE_FILE: ${{ runner.temp }}/ledger.jks
+          LEDGER_STORE_PASSWORD: ${{ secrets.LEDGER_STORE_PASSWORD }}
+          LEDGER_KEY_ALIAS: ${{ secrets.LEDGER_KEY_ALIAS }}
+          LEDGER_KEY_PASSWORD: ${{ secrets.LEDGER_KEY_PASSWORD }}
         run: ./gradlew testDebugUnitTest
 
       - name: Build release APK
+        env:
+          LEDGER_STORE_FILE: ${{ runner.temp }}/ledger.jks
+          LEDGER_STORE_PASSWORD: ${{ secrets.LEDGER_STORE_PASSWORD }}
+          LEDGER_KEY_ALIAS: ${{ secrets.LEDGER_KEY_ALIAS }}
+          LEDGER_KEY_PASSWORD: ${{ secrets.LEDGER_KEY_PASSWORD }}
         run: ./gradlew assembleRelease -PversionCode=${{ github.run_number }} -PversionName=0.${{ github.run_number }}
 
       - name: Publish release
