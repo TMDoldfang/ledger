@@ -1,7 +1,6 @@
 import java.util.Properties
 
 plugins {
-plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -26,7 +25,6 @@ android {
     // 金鑰與密碼不放在 Repo:GitHub Actions 讀 Secrets,本機讀 local.properties。
     signingConfigs {
         create("shared") {
-            // 金鑰資訊來自環境變數(GitHub Actions)或 local.properties(本機,不會上傳)
             val localProps = Properties().apply {
                 val f = rootProject.file("local.properties")
                 if (f.exists()) f.inputStream().use { load(it) }
@@ -40,6 +38,7 @@ android {
             keyPassword = secret("LEDGER_KEY_PASSWORD", "ledger.keyPassword")
         }
     }
+
     buildTypes {
         debug {
             // debug 也用同一把金鑰,這樣從 Android Studio 裝的版本之後可以被線上更新覆蓋
