@@ -1,0 +1,43 @@
+name: Build APK and publish release
+
+# 每次推上 main 就:跑單元測試 → 打包 APK → 建立 GitHub Release。
+# App 內的「檢查更新」就是讀這個 Release(tag 是 v 加執行編號,例如 v12)。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # 用網頁上傳檔案會丟掉執行權限,這裡補上
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest
+
+      - name: Build release APK
+        run: ./gradlew assembleRelease -PversionCode=${{ github.run_number }} -PversionName=0.${{ github.run_number }}
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: 簡記 build ${{ github.run_number }}
+          body: ${{ github.event.head_commit.message }}
+          files: app/build/outputs/apk/release/app-release.apk
