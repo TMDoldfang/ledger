@@ -8,11 +8,15 @@ import com.example.ledger.data.LedgerRepository
 import com.example.ledger.data.LedgerTransaction
 import com.example.ledger.data.MonthPoint
 import com.example.ledger.data.MonthTotals
+import com.example.ledger.data.PersonShareRow
+import com.example.ledger.data.PersonTotals
+import com.example.ledger.data.StatsMath
 import com.example.ledger.data.Share
 import com.example.ledger.data.ShareInput
 import com.example.ledger.data.StatsState
 import com.example.ledger.data.SystemNames
 import com.example.ledger.data.TransactionItem
+import com.example.ledger.util.formatMoney
 import com.example.ledger.util.startMillis
 import com.example.ledger.voice.TransactionDraft
 import com.example.ledger.util.toLocalDate
@@ -49,6 +53,11 @@ class LedgerViewModel(private val repo: LedgerRepository) : ViewModel() {
 
     /** 代墊對象。 */
     val people = repo.people.stateIn(viewModelScope, whileSubscribed, emptyList())
+
+    /** 每個人的代墊累計(管理頁)。 */
+    val peopleTotals = repo.peopleTotals.stateIn(viewModelScope, whileSubscribed, emptyList())
+
+    fun personRows(personId: Long): kotlinx.coroutines.flow.Flow<List<PersonShareRow>> = repo.personRows(personId)
 
     /** 待收款(朋友還沒轉給我的部分)。 */
     val receivables = repo.receivables.stateIn(viewModelScope, whileSubscribed, emptyList())
@@ -145,6 +154,14 @@ class LedgerViewModel(private val repo: LedgerRepository) : ViewModel() {
         }
     }
 
+    /** 「不收了」:這一部分改算成我自己的支出。 */
+    fun forgive(txId: Long, personId: Long?, amount: Long) {
+        viewModelScope.launch {
+            val done = repo.forgive(txId, personId, amount)
+            messageChannel.send(if (done > 0) "已標記不收了 NT$$done,改算成你的支出" else "沒有可處理的金額")
+        }
+    }
+
     /** 事後指定「未指定」的那一部分是誰欠的。 */
     fun assign(txId: Long, personId: Long, amount: Long) {
         viewModelScope.launch {
@@ -176,14 +193,8 @@ class LedgerViewModel(private val repo: LedgerRepository) : ViewModel() {
         }
     }
 
-    /** 轉帳與代墊收回不算收支;有「我的份」的支出只算我的份。 */
-    private fun totalsOf(list: List<TransactionItem>): MonthTotals {
-        val counted = list.filter { it.countsInStats }
-        return MonthTotals(
-            expense = counted.filter { it.isExpense }.sumOf { it.countedAmount },
-            income = counted.filter { !it.isExpense }.sumOf { it.amount },
-        )
-    }
+    /** 支出算實付全額(含代墊);代墊收回另算,見 StatsMath。 */
+    private fun totalsOf(list: List<TransactionItem>): MonthTotals = StatsMath.totals(list)
 
     private fun monthOf(item: TransactionItem): YearMonth =
         YearMonth.from(item.timestamp.toLocalDate(zone))
@@ -191,14 +202,7 @@ class LedgerViewModel(private val repo: LedgerRepository) : ViewModel() {
     private fun buildStats(selected: YearMonth, list: List<TransactionItem>): StatsState {
         val byMonth = list.groupBy { monthOf(it) }
         val current = byMonth[selected].orEmpty()
-        val byCategory = current
-            .filter { it.isExpense && it.countsInStats }
-            .groupBy { it.categoryId }
-            .map { (_, rows) ->
-                CategorySum(rows.first().categoryName, rows.first().categoryIcon, rows.sumOf { it.countedAmount })
-            }
-            .filter { it.total > 0 }
-            .sortedByDescending { it.total }
+        val byCategory = StatsMath.categorySums(current) { formatMoney(it) }
         val trend = (5 downTo 0).map { back ->
             val m = selected.minusMonths(back.toLong())
             val t = totalsOf(byMonth[m].orEmpty())

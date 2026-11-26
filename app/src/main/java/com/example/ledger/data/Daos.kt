@@ -32,7 +32,9 @@ interface TransactionDao {
                c.id AS categoryId, c.name AS categoryName, c.icon AS categoryIcon,
                a.id AS accountId, a.name AS accountName,
                t.myShare AS myShare, t.transferToAccountId AS transferToAccountId,
-               ta.name AS transferToName, t.settlesId AS settlesId
+               ta.name AS transferToName, t.settlesId AS settlesId,
+               COALESCE((SELECT SUM(sf.forgiven) FROM shares sf WHERE sf.transactionId = t.id), 0) AS forgiven,
+               COALESCE((SELECT SUM(sx.amount) FROM transactions sx WHERE sx.settlesId = t.id), 0) AS settledTotal
         FROM transactions t
         JOIN categories c ON c.id = t.categoryId
         JOIN accounts a ON a.id = t.accountId
@@ -54,7 +56,7 @@ interface TransactionDao {
                    t.amount AS txAmount, t.myShare AS myShare, t.note AS note, t.timestamp AS timestamp,
                    c.name AS categoryName, c.icon AS categoryIcon, a.name AS accountName,
                    s.amount AS shareAmount,
-                   s.amount - COALESCE(
+                   s.amount - s.forgiven - COALESCE(
                        (SELECT SUM(x.amount) FROM transactions x
                         WHERE x.settlesId = t.id AND x.settlesPersonId = s.personId), 0
                    ) AS outstanding
@@ -84,6 +86,31 @@ interface TransactionDao {
         """
     )
     fun observeReceivables(): Flow<List<ReceivableDetail>>
+
+    /** 某個人在某一筆代墊已收回的總額。 */
+    @Query("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE settlesId = :txId AND settlesPersonId = :personId")
+    suspend fun settledBy(txId: Long, personId: Long): Long
+
+    /** 還沒指定是誰的那一部分已收回的總額。 */
+    @Query("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE settlesId = :txId AND settlesPersonId IS NULL")
+    suspend fun settledUnassigned(txId: Long): Long
+
+    /** 某個人的每一筆代墊明細(管理頁點進去看)。 */
+    @Query(
+        """
+        SELECT t.id AS txId, t.timestamp AS timestamp, t.note AS note,
+               c.name AS categoryName, c.icon AS categoryIcon,
+               s.amount AS shareAmount, s.forgiven AS forgiven,
+               COALESCE((SELECT SUM(x.amount) FROM transactions x
+                         WHERE x.settlesId = t.id AND x.settlesPersonId = s.personId), 0) AS settled
+        FROM shares s
+        JOIN transactions t ON t.id = s.transactionId
+        JOIN categories c ON c.id = t.categoryId
+        WHERE s.personId = :personId
+        ORDER BY t.timestamp DESC, t.id DESC
+        """
+    )
+    fun observePersonRows(personId: Long): Flow<List<PersonShareRow>>
 
     @Query("SELECT * FROM transactions WHERE id = :id")
     suspend fun getById(id: Long): LedgerTransaction?
@@ -187,6 +214,22 @@ interface PersonDao {
     @Query("SELECT * FROM people ORDER BY name")
     fun observeAll(): Flow<List<Person>>
 
+    /** 每個人的代墊累計(管理頁清單用)。 */
+    @Query(
+        """
+        SELECT p.id AS personId, p.name AS name,
+               COALESCE(SUM(s.amount), 0) AS total,
+               COALESCE(SUM(s.forgiven), 0) AS forgiven,
+               COALESCE(SUM((SELECT SUM(x.amount) FROM transactions x
+                             WHERE x.settlesId = s.transactionId AND x.settlesPersonId = s.personId)), 0) AS settled
+        FROM people p
+        LEFT JOIN shares s ON s.personId = p.id
+        GROUP BY p.id
+        ORDER BY p.name
+        """
+    )
+    fun observeTotals(): Flow<List<PersonTotals>>
+
     /** 名字重複時不新增,回傳 -1。 */
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(person: Person): Long
@@ -220,6 +263,9 @@ interface ShareDao {
 
     @Query("DELETE FROM shares WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query("UPDATE shares SET forgiven = forgiven + :amount WHERE id = :id")
+    suspend fun addForgiven(id: Long, amount: Long)
 }
 
 @Dao

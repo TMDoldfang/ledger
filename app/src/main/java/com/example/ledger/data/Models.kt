@@ -40,12 +40,22 @@ data class TransactionItem(
     val transferToAccountId: Long?,
     val transferToName: String?,
     val settlesId: Long?,
+    /** 這筆代墊裡「不收了」的金額(各人分攤的 forgiven 加總) */
+    val forgiven: Long = 0,
+    /** 這筆代墊到目前為止已收回的總額 */
+    val settledTotal: Long = 0,
 ) {
     val isTransfer: Boolean get() = transferToAccountId != null
     val isSettlement: Boolean get() = settlesId != null
 
-    /** 統計時真正算進支出的金額:有「我的份」就用它,否則用實付。 */
-    val countedAmount: Long get() = myShare ?: amount
+    /** 我自己真正負擔的:有「我的份」就是它(加上不收了的),否則是實付全額。 */
+    val burden: Long get() = if (myShare != null) minOf(amount, myShare + forgiven) else amount
+
+    /** 別人該付的代墊總額(不論收回了沒);非代墊為 0。 */
+    val proxy: Long get() = if (isExpense && myShare != null && !isTransfer) maxOf(0L, amount - burden) else 0L
+
+    /** 舊名稱:統計用的「我的份」。 */
+    val countedAmount: Long get() = burden
 
     /** 轉帳和代墊收回只是帳戶間的錢在動,不算收入也不算支出。 */
     val countsInStats: Boolean get() = !isTransfer && !isSettlement
@@ -79,12 +89,58 @@ data class AccountWithBalance(
     val balance: Long,
 )
 
-data class CategorySum(val name: String, val icon: String, val total: Long)
+/** 圓環圖的一塊。[isProxy] 是「代墊」那一塊,[note] 是圖例上的補充說明(已收回 / 待收)。 */
+data class CategorySum(
+    val name: String,
+    val icon: String,
+    val total: Long,
+    val isProxy: Boolean = false,
+    val note: String? = null,
+)
 
 data class MonthPoint(val month: YearMonth, val expense: Long, val income: Long)
 
-data class MonthTotals(val expense: Long = 0, val income: Long = 0) {
-    val balance: Long get() = income - expense
+/**
+ * 一個月的收支(現金流角度):
+ * [expense] 是實付全額(含代墊);[settledIn] 是這個月收到的代墊收回(不算收入);
+ * [proxy] 是這個月的支出裡別人該付的代墊,[proxyReceived] 是其中已收回的(不論哪個月收到)。
+ */
+data class MonthTotals(
+    val expense: Long = 0,
+    val income: Long = 0,
+    val settledIn: Long = 0,
+    val proxy: Long = 0,
+    val proxyReceived: Long = 0,
+) {
+    val balance: Long get() = income - expense + settledIn
+}
+
+/** 每個人的代墊累計(管理頁用)。 */
+data class PersonTotals(
+    val personId: Long,
+    val name: String,
+    /** 累計該付的 */
+    val total: Long,
+    /** 不收了的 */
+    val forgiven: Long,
+    /** 已收回的 */
+    val settled: Long,
+) {
+    val outstanding: Long get() = maxOf(0L, total - forgiven - settled)
+}
+
+/** 某個人在某一筆代墊裡的明細。 */
+data class PersonShareRow(
+    val txId: Long,
+    val timestamp: Long,
+    val note: String,
+    val categoryName: String,
+    val categoryIcon: String,
+    val shareAmount: Long,
+    val forgiven: Long,
+    val settled: Long,
+) {
+    val outstanding: Long get() = maxOf(0L, shareAmount - forgiven - settled)
 }
 
 data class StatsState(

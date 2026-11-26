@@ -8,6 +8,7 @@ import com.example.ledger.detect.PendingReminder
 import com.example.ledger.reminder.BudgetChecker
 import com.example.ledger.reminder.InvestReminder
 import com.example.ledger.reminder.OwedByReminder
+import com.example.ledger.reminder.ReceivableReminder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -27,6 +28,8 @@ class LedgerApp : Application() {
         InvestReminder.ensureScheduled(this)
         // 自動偵測的待確認:開著才排,每晚 21:00 提醒
         PendingReminder.ensureScheduled(this)
+        // 待收款放太久:開著才排,每天晚上檢查
+        ReceivableReminder.ensureScheduled(this)
         // 月額上限:每次儲存帳目後檢查;啟動時也檢查一次
         repository.onSaved = { BudgetChecker.check(this, repository) }
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {

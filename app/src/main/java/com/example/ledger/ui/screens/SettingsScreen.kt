@@ -37,6 +37,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.example.ledger.detect.NoticeAccess
 import com.example.ledger.detect.PendingReminder
+import com.example.ledger.reminder.InvestPlan
+import com.example.ledger.reminder.ReceivableReminder
+import com.example.ledger.reminder.InvestSchedule
 import com.example.ledger.reminder.ReminderSettings
 import com.example.ledger.settings.AppSettings
 import com.example.ledger.ui.ScreenHeader
@@ -48,7 +51,7 @@ private val BASIC_FEATURES = listOf(
     "帳目列表:按月、依日分組、搜尋、編輯、刪除",
     "帳戶(現金、銀行、信用卡、電子支付、投資)與即時餘額",
     "分類管理,以及統計(支出圓環圖、近 6 個月收支)",
-    "代墊:實付與「我的份」、待收款、已收到",
+    "代墊:實付與「我的份」、選人、待收款、已收到、不收了;管理頁可看每個人的代墊統計",
     "轉帳(繳卡費、投資 0050)與現金領出,不會重複計算支出",
     "代墊「誰欠我」30 分鐘提醒(目前一律啟用)",
     "線上更新:有新版本時自動跳出視窗",
@@ -124,14 +127,18 @@ fun SettingsScreen() {
             )
         }
 
-        // 0050 定期定額提醒(預設關閉)
+        // 定期定額提醒(預設關閉):可以有很多組,扣款日與提醒日都能隨時修改
         var investOn by remember { mutableStateOf(ReminderSettings.isInvestEnabled(context)) }
+        var plans by remember { mutableStateOf(ReminderSettings.investPlans(context)) }
+        var editingPlan by remember { mutableStateOf<InvestPlan?>(null) }
+        var addingPlan by remember { mutableStateOf(false) }
         val notificationBlocked = Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         FeatureRow(
-            title = "0050 定期定額提醒",
-            description = "每月 6 號扣款(遇假日順延),8 號中午如果這個月還沒記錄投資,就通知你補記。",
+            title = "定期定額提醒",
+            description = "依你設定的扣款日和提醒日:提醒日中午如果這個月還沒記錄轉入投資帳戶,就通知你補記。" +
+                "金額不固定所以不自動入帳。扣款日遇假日會順延的話,提醒日請設晚幾天。",
             checked = investOn,
             onCheckedChange = {
                 investOn = it
@@ -141,6 +148,103 @@ fun SettingsScreen() {
                 "目前沒有通知權限,請到系統設定允許通知,否則提醒不會響"
             } else null,
         )
+        if (investOn) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                plans.forEach { p ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(p.name, style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "每月 ${p.debitDay} 號扣款 · ${p.remindDay} 號中午提醒",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        TextButton(onClick = { editingPlan = p }) { Text("修改") }
+                        TextButton(onClick = {
+                            plans = plans.filter { it.id != p.id }
+                            ReminderSettings.saveInvestPlans(context, plans)
+                        }) { Text("刪除") }
+                    }
+                }
+                if (plans.isEmpty()) {
+                    Text(
+                        "目前沒有任何一組,不會提醒。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (plans.size < InvestSchedule.MAX_PLANS) {
+                    TextButton(onClick = { addingPlan = true }) { Text("新增一組") }
+                }
+            }
+        }
+        if (addingPlan || editingPlan != null) {
+            val editing = editingPlan
+            PlanDialog(
+                initial = editing,
+                onDismiss = { addingPlan = false; editingPlan = null },
+                onConfirm = { name, debit, remind ->
+                    plans = if (editing == null) {
+                        plans + InvestPlan(InvestSchedule.nextId(plans), name, debit, remind)
+                    } else {
+                        plans.map { if (it.id == editing.id) it.copy(name = name, debitDay = debit, remindDay = remind) else it }
+                    }
+                    ReminderSettings.saveInvestPlans(context, plans)
+                    addingPlan = false
+                    editingPlan = null
+                },
+            )
+        }
+
+        // 待收款提醒:代墊放太久沒收回就通知(預設關閉,天數可隨時改)
+        var recvOn by remember { mutableStateOf(AppSettings.receivableReminderEnabled(context)) }
+        var recvDays by remember { mutableStateOf(AppSettings.receivableReminderDays(context)) }
+        var showDaysDialog by remember { mutableStateOf(false) }
+        FeatureRow(
+            title = "待收款提醒",
+            description = "代墊超過設定的天數還沒收回,就通知你提醒對方。每天晚上 19:00 檢查,同樣的待收款最多每 7 天提醒一次。",
+            checked = recvOn,
+            onCheckedChange = {
+                recvOn = it
+                AppSettings.setReceivableReminderEnabled(context, it)
+                if (it) ReceivableReminder.ensureScheduled(context) else ReceivableReminder.cancel(context)
+            },
+        )
+        if (recvOn) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("超過 $recvDays 天就提醒", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = { showDaysDialog = true }) { Text("修改") }
+            }
+        }
+        if (showDaysDialog) {
+            var text by remember { mutableStateOf(recvDays.toString()) }
+            val value = text.toIntOrNull() ?: 0
+            AlertDialog(
+                onDismissRequest = { showDaysDialog = false },
+                title = { Text("超過幾天提醒?") },
+                text = {
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { s -> text = s.filter(Char::isDigit).take(3) },
+                        label = { Text("天數(1~365)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                },
+                confirmButton = {
+                    TextButton(enabled = value in 1..365, onClick = {
+                        AppSettings.setReceivableReminderDays(context, value)
+                        recvDays = value
+                        showDaysDialog = false
+                    }) { Text("儲存") }
+                },
+                dismissButton = { TextButton(onClick = { showDaysDialog = false }) { Text("取消") } },
+            )
+        }
 
         // 自動偵測訊息入帳:預設關閉;要在系統設定允許「通知存取」才會真的運作
         var autoOn by remember { mutableStateOf(AppSettings.autoDetectEnabled(context)) }
@@ -273,6 +377,52 @@ private fun LimitDialog(initial: Long, enabling: Boolean, onDismiss: () -> Unit,
         confirmButton = {
             TextButton(enabled = value > 0, onClick = { onConfirm(value) }) {
                 Text(if (enabling) "開啟" else "儲存")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
+/** 新增或修改一組定期定額:名稱、每月幾號扣款、每月幾號中午提醒(1~31,超過該月天數就用月底)。 */
+@Composable
+private fun PlanDialog(initial: InvestPlan?, onDismiss: () -> Unit, onConfirm: (String, Int, Int) -> Unit) {
+    var name by remember { mutableStateOf(initial?.name ?: InvestSchedule.DEFAULT_NAME) }
+    var debit by remember { mutableStateOf((initial?.debitDay ?: 6).toString()) }
+    var remind by remember { mutableStateOf((initial?.remindDay ?: 8).toString()) }
+    val debitDay = debit.toIntOrNull()
+    val remindDay = remind.toIntOrNull()
+    val valid = debitDay in 1..31 && remindDay in 1..31
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (initial == null) "新增定期定額" else "修改定期定額") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it.take(20) },
+                    label = { Text("名稱(例如 0050)") },
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = debit,
+                    onValueChange = { s -> debit = s.filter(Char::isDigit).take(2) },
+                    label = { Text("每月幾號扣款") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+                OutlinedTextField(
+                    value = remind,
+                    onValueChange = { s -> remind = s.filter(Char::isDigit).take(2) },
+                    label = { Text("每月幾號中午提醒") },
+                    singleLine = true,
+                    supportingText = { Text("1~31;遇假日會順延的話,設晚幾天") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = valid, onClick = { onConfirm(InvestSchedule.cleanName(name), debitDay!!, remindDay!!) }) {
+                Text("儲存")
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },

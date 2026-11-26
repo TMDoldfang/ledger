@@ -9,6 +9,9 @@ object AppSettings {
     private const val KEY_BUDGET_LIMIT = "budget_limit"
     private const val KEY_BUDGET_NOTIFIED = "budget_notified"
     private const val KEY_AUTO_DETECT = "auto_detect_enabled"
+    private const val KEY_RECV_ENABLED = "receivable_reminder_enabled"
+    private const val KEY_RECV_DAYS = "receivable_reminder_days"
+    private const val KEY_RECV_LAST = "receivable_last_notified"
     private const val KEY_LAST_LINE_TITLE = "last_line_title"
     private const val KEY_LAST_DETECTED = "last_detected"
     private const val KEY_LAST_DETECTED_AT = "last_detected_at"
@@ -45,4 +48,19 @@ object AppSettings {
     }
     fun setLastDetected(context: Context, text: String, at: Long) =
         prefs(context).edit().putString(KEY_LAST_DETECTED, text).putLong(KEY_LAST_DETECTED_AT, at).apply()
+
+    // 待收款提醒:放太久沒收回就通知。預設關閉,天數預設 30,可隨時改。
+    fun receivableReminderEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_RECV_ENABLED, false)
+    fun setReceivableReminderEnabled(context: Context, on: Boolean) =
+        prefs(context).edit().putBoolean(KEY_RECV_ENABLED, on).apply()
+
+    fun receivableReminderDays(context: Context): Int = prefs(context).getInt(KEY_RECV_DAYS, 30)
+    fun setReceivableReminderDays(context: Context, days: Int) =
+        prefs(context).edit().putInt(KEY_RECV_DAYS, days.coerceIn(1, 365)).apply()
+
+    /** 上次提醒是哪一天(epochDay),避免天天通知。 */
+    fun receivableLastNotified(context: Context): Long? =
+        prefs(context).getLong(KEY_RECV_LAST, Long.MIN_VALUE).takeIf { it != Long.MIN_VALUE }
+    fun setReceivableLastNotified(context: Context, epochDay: Long) =
+        prefs(context).edit().putLong(KEY_RECV_LAST, epochDay).apply()
 }

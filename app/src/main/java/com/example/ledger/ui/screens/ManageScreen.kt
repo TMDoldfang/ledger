@@ -2,6 +2,7 @@
 
 package com.example.ledger.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -40,6 +41,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ledger.data.AccountType
 import com.example.ledger.ui.AddPersonDialog
 import com.example.ledger.ui.LedgerViewModel
+import com.example.ledger.ui.PersonSheet
 import com.example.ledger.ui.ScreenHeader
 import com.example.ledger.ui.SectionTitle
 import com.example.ledger.ui.UpdateSection
@@ -52,7 +54,8 @@ fun ManageScreen(vm: LedgerViewModel, updateVm: UpdateViewModel) {
     val categories by vm.categories.collectAsStateWithLifecycle()
     var showAccountDialog by remember { mutableStateOf(false) }
     var showCategoryDialog by remember { mutableStateOf(false) }
-    val people by vm.people.collectAsStateWithLifecycle()
+    val people by vm.peopleTotals.collectAsStateWithLifecycle()
+    var viewingPerson by remember { mutableStateOf<com.example.ledger.data.PersonTotals?>(null) }
     var showPersonDialog by remember { mutableStateOf(false) }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -116,13 +119,21 @@ fun ManageScreen(vm: LedgerViewModel, updateVm: UpdateViewModel) {
                 )
             }
         }
-        items(people, key = { "p${it.id}" }) { p ->
+        items(people, key = { "p${it.personId}" }) { p ->
             Row(
-                Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
+                Modifier.fillMaxWidth().clickable { viewingPerson = p }.padding(start = 16.dp, end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(p.name, Modifier.weight(1f))
-                IconButton(onClick = { vm.deletePerson(p.id) }) {
+                Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
+                    Text(p.name)
+                    Text(
+                        if (p.total > 0) "累計代墊 ${formatMoney(p.total)} · 待收 ${formatMoney(p.outstanding)}(點開看明細)"
+                        else "還沒有代墊紀錄",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = { vm.deletePerson(p.personId) }) {
                     Icon(Icons.Filled.Delete, contentDescription = "刪除代墊對象")
                 }
             }
@@ -140,6 +151,9 @@ fun ManageScreen(vm: LedgerViewModel, updateVm: UpdateViewModel) {
                 showAccountDialog = false
             },
         )
+    }
+    viewingPerson?.let { p ->
+        PersonSheet(vm = vm, personId = p.personId, name = p.name, onDismiss = { viewingPerson = null })
     }
     if (showPersonDialog) {
         AddPersonDialog(

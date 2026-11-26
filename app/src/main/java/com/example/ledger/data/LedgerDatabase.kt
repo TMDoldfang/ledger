@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [Account::class, Category::class, LedgerTransaction::class, Person::class, Share::class, PendingEntry::class],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class LedgerDatabase : RoomDatabase() {
@@ -59,9 +59,16 @@ abstract class LedgerDatabase : RoomDatabase() {
             }
         }
 
+        /** v5:代墊「不收了」(shares.forgiven)。 */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE shares ADD COLUMN forgiven INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun create(context: Context): LedgerDatabase =
             Room.databaseBuilder(context, LedgerDatabase::class.java, "ledger.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
     }
 }

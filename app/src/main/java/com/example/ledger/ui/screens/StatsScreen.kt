@@ -69,6 +69,17 @@ fun StatsScreen(vm: LedgerViewModel) {
                 StatCell("收入", formatMoney(stats.totals.income), incomeColor(), Modifier.weight(1f))
                 StatCell("結餘", formatMoney(stats.totals.balance), MaterialTheme.colorScheme.onSurface, Modifier.weight(1f))
             }
+            if (stats.totals.proxy > 0 || stats.totals.settledIn > 0) {
+                Text(
+                    listOfNotNull(
+                        if (stats.totals.proxy > 0) "支出含代墊 ${formatMoney(stats.totals.proxy)}" else null,
+                        if (stats.totals.settledIn > 0) "本月收回 +${formatMoney(stats.totals.settledIn)}(已列入結餘)" else null,
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 10.dp),
+                )
+            }
         }
 
         // 待收代墊:不分月份,沒收回就一直在;點進去看每個人、每一筆的金額
@@ -128,7 +139,10 @@ fun StatsScreen(vm: LedgerViewModel) {
             )
             val total = stats.expenseByCategory.sumOf { it.total }
             stats.expenseByCategory.forEachIndexed { i, s ->
-                CategoryLegendRow(s, total, ChartPalette[i % ChartPalette.size])
+                CategoryLegendRow(
+                    s, total, ChartPalette[i % ChartPalette.size],
+                    onClick = if (s.isProxy) ({ showReceivables = true }) else null,
+                )
             }
         }
 
@@ -180,14 +194,25 @@ private fun DonutChart(sums: List<CategorySum>, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun CategoryLegendRow(s: CategorySum, total: Long, color: Color) {
+private fun CategoryLegendRow(s: CategorySum, total: Long, color: Color, onClick: (() -> Unit)? = null) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        Modifier.fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(12.dp).clip(CircleShape).background(color))
         Spacer(Modifier.width(10.dp))
-        Text("${s.icon} ${s.name}", Modifier.weight(1f))
+        Column(Modifier.weight(1f)) {
+            Text("${s.icon} ${s.name}")
+            s.note?.let {
+                Text(
+                    it + " · 點開看明細",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         Text(
             "%.0f%%".format(s.total * 100f / total),
             style = MaterialTheme.typography.bodySmall,

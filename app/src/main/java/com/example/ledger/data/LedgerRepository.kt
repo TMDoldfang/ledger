@@ -24,6 +24,8 @@ class LedgerRepository(private val db: LedgerDatabase) {
     val receivables: Flow<List<ReceivableDetail>> = transactions.observeReceivables()
 
     val people: Flow<List<Person>> = personDao.observeAll()
+    val peopleTotals: Flow<List<PersonTotals>> = personDao.observeTotals()
+    fun personRows(personId: Long): Flow<List<PersonShareRow>> = transactions.observePersonRows(personId)
 
     // 自動偵測的待確認
     val pending: Flow<List<PendingEntry>> = pendingDao.observeAll()
@@ -71,9 +73,18 @@ class LedgerRepository(private val db: LedgerDatabase) {
         val id = db.withTransaction {
             val savedId = if (clean.id == 0L) transactions.insert(clean) else clean.id.also { transactions.update(clean) }
             if (pendingId != null) pendingDao.deleteById(pendingId) // 從待確認轉成正式帳目
+            // 重寫分攤前,先記住每個人「不收了」的金額,存完要還原(不能因為改個備註就變回待收)
+            val oldForgiven = shareDao.forTransaction(savedId).associate { it.personId to it.forgiven }
             shareDao.deleteForTransaction(savedId)
             if (normalized.isNotEmpty()) {
-                shareDao.insertAll(normalized.map { Share(transactionId = savedId, personId = it.personId, amount = it.amount) })
+                shareDao.insertAll(
+                    normalized.map {
+                        Share(
+                            transactionId = savedId, personId = it.personId, amount = it.amount,
+                            forgiven = minOf(oldForgiven[it.personId] ?: 0L, it.amount),
+                        )
+                    }
+                )
             }
             savedId
         }
@@ -98,6 +109,10 @@ class LedgerRepository(private val db: LedgerDatabase) {
     /** 這段時間內有沒有記過投資(轉入投資帳戶)。 */
     suspend fun hasInvestTransfer(start: Long, end: Long): Boolean =
         transactions.countInvestTransfers(start, end) > 0
+
+    /** 這段時間內「轉入投資帳戶」的筆數。 */
+    suspend fun investTransferCount(start: Long, end: Long): Int =
+        transactions.countInvestTransfers(start, end)
 
     /** 由 LedgerApp 設定:新增或修改了還沒填「誰欠我」的代墊時呼叫,參數是帳目 id。 */
     var onNeedsOwedBy: ((Long) -> Unit)? = null
@@ -125,6 +140,31 @@ class LedgerRepository(private val db: LedgerDatabase) {
         return true
     }
 
+    /**
+     * 「不收了」:這一部分不再是待收款,改算成我自己的負擔。回傳實際處理的金額(0 = 沒東西可處理)。
+     * 某個人的:記在他那一列的 forgiven(保留「他欠過多少」的紀錄);未指定的:直接加到我的份。
+     */
+    suspend fun forgive(txId: Long, personId: Long?, amount: Long): Long = db.withTransaction {
+        if (amount <= 0) return@withTransaction 0L
+        val t = transactions.getById(txId) ?: return@withTransaction 0L
+        if (personId != null) {
+            val row = shareDao.forTransaction(txId).firstOrNull { it.personId == personId } ?: return@withTransaction 0L
+            val outstanding = row.amount - row.forgiven - transactions.settledBy(txId, personId)
+            val give = minOf(amount, outstanding)
+            if (give <= 0) return@withTransaction 0L
+            shareDao.addForgiven(row.id, give)
+            give
+        } else {
+            val mine = t.myShare ?: return@withTransaction 0L
+            val assigned = shareDao.forTransaction(txId).sumOf { it.amount }
+            val outstanding = ShareMath.unassigned(t.amount, mine, assigned) - transactions.settledUnassigned(txId)
+            val give = minOf(amount, outstanding)
+            if (give <= 0) return@withTransaction 0L
+            transactions.update(t.copy(myShare = mine + give))
+            give
+        }
+    }
+
     /** 把「還沒指定是誰」的金額分一部分給某個人(最多到未指定的餘額)。 */
     suspend fun assignShare(txId: Long, personId: Long, amount: Long): Boolean = db.withTransaction {
         val t = transactions.getById(txId) ?: return@withTransaction false
@@ -136,8 +176,16 @@ class LedgerRepository(private val db: LedgerDatabase) {
             existing.map { ShareInput(it.personId, it.amount) } + ShareInput(personId, give),
             t.amount - (t.myShare ?: t.amount),
         )
+        val oldForgiven = existing.associate { it.personId to it.forgiven }
         shareDao.deleteForTransaction(txId)
-        shareDao.insertAll(merged.map { Share(transactionId = txId, personId = it.personId, amount = it.amount) })
+        shareDao.insertAll(
+            merged.map {
+                Share(
+                    transactionId = txId, personId = it.personId, amount = it.amount,
+                    forgiven = minOf(oldForgiven[it.personId] ?: 0L, it.amount),
+                )
+            }
+        )
         true
     }
 

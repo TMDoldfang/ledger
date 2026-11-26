@@ -1,5 +1,6 @@
 package com.example.ledger.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -105,6 +106,8 @@ data class Share(
     val transactionId: Long,
     val personId: Long,
     val amount: Long,
+    /** 「不收了」的金額:不再是待收款,改算成我自己的負擔(v5 加入) */
+    @ColumnInfo(defaultValue = "0") val forgiven: Long = 0,
 )
 
 /**

@@ -53,6 +53,7 @@ fun ReceivablesSheet(vm: LedgerViewModel, onDismiss: () -> Unit) {
     val zone = remember { ZoneId.systemDefault() }
     var settling by remember { mutableStateOf<ReceivableDetail?>(null) }
     var assigning by remember { mutableStateOf<ReceivableDetail?>(null) }
+    var forgiving by remember { mutableStateOf<ReceivableDetail?>(null) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -111,10 +112,13 @@ fun ReceivablesSheet(vm: LedgerViewModel, onDismiss: () -> Unit) {
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
-                                if (r.personId == null) {
-                                    OutlinedButton(onClick = { assigning = r }) { Text("指定是誰") }
-                                } else {
-                                    Button(onClick = { settling = r }) { Text("已收到") }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    if (r.personId == null) {
+                                        OutlinedButton(onClick = { assigning = r }) { Text("指定是誰") }
+                                    } else {
+                                        Button(onClick = { settling = r }) { Text("已收到") }
+                                    }
+                                    TextButton(onClick = { forgiving = r }) { Text("不收了") }
                                 }
                             }
                         }
@@ -231,5 +235,38 @@ fun ReceivablesSheet(vm: LedgerViewModel, onDismiss: () -> Unit) {
                 },
             )
         }
+    }
+
+    forgiving?.let { r ->
+        var amountText by remember(r.txId, r.personId) { mutableStateOf(r.outstanding.toString()) }
+        val amount = amountText.toLongOrNull() ?: 0L
+        AlertDialog(
+            onDismissRequest = { forgiving = null },
+            title = { Text("${r.personName ?: "這一筆"}:不收了?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("不收的部分會從待收款拿掉,改算成你自己的支出(統計裡的分類會增加)。只放棄一部分的話,改下面的金額。")
+                    OutlinedTextField(
+                        value = amountText,
+                        onValueChange = { s -> amountText = s.filter(Char::isDigit).take(9) },
+                        label = { Text("不收的金額") },
+                        prefix = { Text("NT$ ") },
+                        singleLine = true,
+                        supportingText = { Text("目前待收 ${formatMoney(r.outstanding)}") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = amount in 1..r.outstanding,
+                    onClick = {
+                        vm.forgive(r.txId, r.personId, amount)
+                        forgiving = null
+                    },
+                ) { Text("確定不收") }
+            },
+            dismissButton = { TextButton(onClick = { forgiving = null }) { Text("取消") } },
+        )
     }
 }

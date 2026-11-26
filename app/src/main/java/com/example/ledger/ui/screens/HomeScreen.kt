@@ -175,6 +175,18 @@ private fun SummaryCard(totals: MonthTotals) {
                 MaterialTheme.colorScheme.onSurface, Modifier.weight(1f),
             )
         }
+        // 代墊的說明只用一行小字,不佔版面:支出含代墊,收回的錢另外列在結餘裡
+        if (totals.proxy > 0 || totals.settledIn > 0) {
+            Text(
+                listOfNotNull(
+                    if (totals.proxy > 0) "支出含代墊 ${formatMoney(totals.proxy)}" else null,
+                    if (totals.settledIn > 0) "本月收回 +${formatMoney(totals.settledIn)}(已列入結餘)" else null,
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
+            )
+        }
     }
 }
 
@@ -254,7 +266,8 @@ private fun SummaryCell(label: String, value: String, color: Color, modifier: Mo
 
 @Composable
 private fun DayHeader(date: LocalDate, rows: List<TransactionItem>) {
-    val net = rows.filter { it.countsInStats }.sumOf { if (it.isExpense) -it.countedAmount else it.amount }
+    // 當天的錢進出:支出算實付全額,代墊收回算進來,轉帳不算
+    val net = rows.filter { !it.isTransfer }.sumOf { if (it.isExpense) -it.amount else it.amount }
     Row(
         Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 2.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -287,7 +300,7 @@ private fun TransactionRow(item: TransactionItem, onClick: () -> Unit) {
                 item.isTransfer -> "${item.accountName} → ${item.transferToName ?: ""}"
                 else -> listOfNotNull(
                     item.accountName,
-                    item.myShare?.let { "實付 ${formatMoney(item.amount)}" },
+                    item.myShare?.let { "我的 ${formatMoney(item.burden)}" },
                     item.note.takeIf { it.isNotBlank() },
                 ).joinToString(" · ")
             }
@@ -312,7 +325,7 @@ private fun TransactionRow(item: TransactionItem, onClick: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             else -> Text(
-                text = (if (item.isExpense) "-" else "+") + formatMoney(item.countedAmount),
+                text = (if (item.isExpense) "-" else "+") + formatMoney(item.amount),
                 style = MaterialTheme.typography.titleMedium,
                 color = if (item.isExpense) expenseColor() else incomeColor(),
             )
