@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Account::class, Category::class, LedgerTransaction::class, Person::class, Share::class],
-    version = 3,
+    entities = [Account::class, Category::class, LedgerTransaction::class, Person::class, Share::class, PendingEntry::class],
+    version = 4,
     exportSchema = false,
 )
 abstract class LedgerDatabase : RoomDatabase() {
@@ -18,6 +18,7 @@ abstract class LedgerDatabase : RoomDatabase() {
     abstract fun transactionDao(): TransactionDao
     abstract fun personDao(): PersonDao
     abstract fun shareDao(): ShareDao
+    abstract fun pendingDao(): PendingDao
 
     companion object {
         /** v2:加入「我的份」(代墊)、轉帳、代墊收回。舊資料原封不動。 */
@@ -48,9 +49,19 @@ abstract class LedgerDatabase : RoomDatabase() {
             }
         }
 
+        /** v4:自動偵測的刷卡通知先放「待確認」(pending_entries)。 */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `pending_entries` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`timestamp` INTEGER NOT NULL, `card` TEXT NOT NULL, `amount` INTEGER)"
+                )
+            }
+        }
+
         fun create(context: Context): LedgerDatabase =
             Room.databaseBuilder(context, LedgerDatabase::class.java, "ledger.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
     }
 }

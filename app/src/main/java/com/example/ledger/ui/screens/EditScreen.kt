@@ -382,6 +382,7 @@ fun EditScreen(vm: LedgerViewModel, id: Long, onDone: () -> Unit) {
                         shares = if (sharedActive) {
                             pickedIds.map { ShareInput(it, picked[it]?.toLongOrNull() ?: 0L) }
                         } else emptyList(),
+                        pendingId = draft?.pendingId,
                     )
                     onDone()
                 },

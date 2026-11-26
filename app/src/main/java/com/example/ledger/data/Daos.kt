@@ -221,3 +221,25 @@ interface ShareDao {
     @Query("DELETE FROM shares WHERE id = :id")
     suspend fun deleteById(id: Long)
 }
+
+@Dao
+interface PendingDao {
+    @Query("SELECT * FROM pending_entries ORDER BY timestamp DESC, id DESC")
+    fun observeAll(): Flow<List<PendingEntry>>
+
+    @Insert
+    suspend fun insert(entry: PendingEntry): Long
+
+    @Query("UPDATE pending_entries SET amount = :amount WHERE id = :id")
+    suspend fun setAmount(id: Long, amount: Long)
+
+    @Query("DELETE FROM pending_entries WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    /** 還沒有金額的 LINE Pay 卡待確認(等 LINE錢包 的通知來補金額)。 */
+    @Query("SELECT * FROM pending_entries WHERE card = 'LINE_PAY' AND amount IS NULL AND timestamp >= :since")
+    suspend fun awaitingAmount(since: Long): List<PendingEntry>
+
+    @Query("SELECT COUNT(*) FROM pending_entries")
+    suspend fun count(): Int
+}

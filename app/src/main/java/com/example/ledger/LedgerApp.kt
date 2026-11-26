@@ -3,6 +3,8 @@ package com.example.ledger
 import android.app.Application
 import com.example.ledger.data.LedgerDatabase
 import com.example.ledger.data.LedgerRepository
+import com.example.ledger.detect.NoticeHandler
+import com.example.ledger.detect.PendingReminder
 import com.example.ledger.reminder.BudgetChecker
 import com.example.ledger.reminder.InvestReminder
 import com.example.ledger.reminder.OwedByReminder
@@ -15,6 +17,7 @@ class LedgerApp : Application() {
     // 專案小,先用手動注入;之後規模變大再換 Hilt / Koin。
     val database by lazy { LedgerDatabase.create(this) }
     val repository by lazy { LedgerRepository(database) }
+    val noticeHandler by lazy { NoticeHandler(repository) }
 
     override fun onCreate() {
         super.onCreate()
@@ -22,6 +25,8 @@ class LedgerApp : Application() {
         repository.onNeedsOwedBy = { id -> OwedByReminder.schedule(this, id) }
         // 0050 定期定額:每月 8 號中午檢查,沒記就提醒
         InvestReminder.ensureScheduled(this)
+        // 自動偵測的待確認:開著才排,每晚 21:00 提醒
+        PendingReminder.ensureScheduled(this)
         // 月額上限:每次儲存帳目後檢查;啟動時也檢查一次
         repository.onSaved = { BudgetChecker.check(this, repository) }
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {

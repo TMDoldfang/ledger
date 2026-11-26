@@ -89,6 +89,21 @@ fun LedgerRoot(vm: LedgerViewModel) {
     }
     UpdateDialog(updateVm)
 
+    // 從「分享」或相簿來的截圖:辨識後可補到待確認,或新增一筆帳目
+    val sharedImage by ShareInbox.uri.collectAsStateWithLifecycle()
+    sharedImage?.let { uri ->
+        ScreenshotSheet(
+            vm = vm,
+            uri = uri,
+            onDismiss = { ShareInbox.uri.value = null },
+            onOpenEditor = { draft ->
+                vm.setDraft(draft)
+                ShareInbox.uri.value = null
+                nav.navigate("edit/0")
+            },
+        )
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {

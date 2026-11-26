@@ -1,7 +1,10 @@
 package com.example.ledger.ui.screens
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
 import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -31,6 +34,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.example.ledger.detect.NoticeAccess
+import com.example.ledger.detect.PendingReminder
 import com.example.ledger.reminder.ReminderSettings
 import com.example.ledger.settings.AppSettings
 import com.example.ledger.ui.ScreenHeader
@@ -45,7 +51,7 @@ private val BASIC_FEATURES = listOf(
     "代墊:實付與「我的份」、待收款、已收到",
     "轉帳(繳卡費、投資 0050)與現金領出,不會重複計算支出",
     "代墊「誰欠我」30 分鐘提醒(目前一律啟用)",
-    "線上更新(在「管理」頁)",
+    "線上更新:有新版本時自動跳出視窗",
 )
 
 /** 設定頁:上面是一直開著的基本功能,下面是可以自己開關的附加功能。 */
@@ -136,14 +142,83 @@ fun SettingsScreen() {
             } else null,
         )
 
-        // 自動偵測訊息入帳:預設關閉,功能還沒推出
+        // 自動偵測訊息入帳:預設關閉;要在系統設定允許「通知存取」才會真的運作
+        var autoOn by remember { mutableStateOf(AppSettings.autoDetectEnabled(context)) }
+        var accessOn by remember { mutableStateOf(NoticeAccess.isGranted(context)) }
+        var showAccessHelp by remember { mutableStateOf(false) }
+        var lastDetected by remember { mutableStateOf(AppSettings.lastDetected(context)) }
+        var lastTitle by remember { mutableStateOf(AppSettings.lastLineTitle(context)) }
+        LifecycleResumeEffect(Unit) {
+            accessOn = NoticeAccess.isGranted(context)
+            lastDetected = AppSettings.lastDetected(context)
+            lastTitle = AppSettings.lastLineTitle(context)
+            onPauseOrDispose { }
+        }
         FeatureRow(
             title = "自動偵測訊息入帳",
-            description = "尚未推出。規劃從 LINE 的刷卡通知偵測消費,先放進「待確認」清單,再提醒你分類。預設關閉,推出後在這裡開啟。",
-            checked = false,
-            onCheckedChange = null,
-            enabled = false,
+            description = "偵測 LINE 裡中國信託、LINE錢包的刷卡通知,先放進「待確認」(不算進統計),每晚 21:00 提醒你補分類。" +
+                "LINE Pay 卡會自動帶金額;統一企業卡(uniopen)通知沒有金額,要自己補。只讀這兩個官方帳號的通知,其他一律不看、不存。",
+            checked = autoOn,
+            onCheckedChange = { on ->
+                autoOn = on
+                AppSettings.setAutoDetectEnabled(context, on)
+                if (on) {
+                    PendingReminder.ensureScheduled(context)
+                    if (!accessOn) showAccessHelp = true
+                } else {
+                    PendingReminder.cancel(context)
+                }
+            },
         )
+        if (autoOn) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (accessOn) "通知存取:已開啟" else "通知存取:尚未開啟(沒開就偵測不到)",
+                        Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (accessOn) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
+                    )
+                    if (!accessOn) TextButton(onClick = { showAccessHelp = true }) { Text("怎麼開") }
+                }
+                lastDetected?.let { (text, _) ->
+                    Text("最近一次偵測:$text", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                lastTitle?.let {
+                    Text("最近一則 LINE 通知的標題:$it(除錯用,只存標題)", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        if (showAccessHelp) {
+            AlertDialog(
+                onDismissRequest = { showAccessHelp = false },
+                title = { Text("開啟通知存取") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("1. 因為這個 App 不是從 Play 商店安裝的,Android 會先擋住這個權限。請先到「應用程式資訊」,按右上角「⋮」→「允許受限制的設定」。")
+                        Text("2. 再到「通知存取」,找到本 App 並打開。")
+                        Text("沒有看到「⋮」或「允許受限制的設定」的話,直接做第 2 步即可。")
+                        TextButton(onClick = {
+                            context.startActivity(
+                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+                            )
+                        }) { Text("開啟「應用程式資訊」") }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showAccessHelp = false
+                        context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                    }) { Text("前往通知存取") }
+                },
+                dismissButton = { TextButton(onClick = { showAccessHelp = false }) { Text("稍後") } },
+            )
+        }
         Spacer(Modifier.height(24.dp))
     }
 }

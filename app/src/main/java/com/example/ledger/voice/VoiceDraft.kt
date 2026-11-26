@@ -21,6 +21,8 @@ data class TransactionDraft(
     /** 哪一個欄位是「預設值」而不是聽出來的,確認卡會標示 */
     val accountIsDefault: Boolean = false,
     val toAccountIsDefault: Boolean = false,
+    /** 從「待確認」轉成帳目時,存檔後要把那一筆待確認刪掉 */
+    val pendingId: Long? = null,
 ) {
     val isTransfer: Boolean get() = transferToAccountId != null
 }

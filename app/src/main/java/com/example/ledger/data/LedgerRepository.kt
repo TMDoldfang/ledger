@@ -10,6 +10,7 @@ class LedgerRepository(private val db: LedgerDatabase) {
     private val categoryDao = db.categoryDao()
     private val personDao = db.personDao()
     private val shareDao = db.shareDao()
+    private val pendingDao = db.pendingDao()
 
     val accounts: Flow<List<AccountWithBalance>> = accountDao.observeWithBalance()
     val categories: Flow<List<Category>> = categoryDao.observeAll()
@@ -23,6 +24,15 @@ class LedgerRepository(private val db: LedgerDatabase) {
     val receivables: Flow<List<ReceivableDetail>> = transactions.observeReceivables()
 
     val people: Flow<List<Person>> = personDao.observeAll()
+
+    // 自動偵測的待確認
+    val pending: Flow<List<PendingEntry>> = pendingDao.observeAll()
+    suspend fun addPending(card: String, amount: Long?, timestamp: Long): Long =
+        pendingDao.insert(PendingEntry(timestamp = timestamp, card = card, amount = amount))
+    suspend fun fillPendingAmount(id: Long, amount: Long) = pendingDao.setAmount(id, amount)
+    suspend fun deletePending(id: Long) = pendingDao.deleteById(id)
+    suspend fun pendingAwaitingAmount(since: Long): List<PendingEntry> = pendingDao.awaitingAmount(since)
+    suspend fun pendingCount(): Int = pendingDao.count()
 
     suspend fun sharesOf(transactionId: Long): List<Share> = shareDao.forTransaction(transactionId)
 
@@ -41,7 +51,7 @@ class LedgerRepository(private val db: LedgerDatabase) {
         return true
     }
 
-    suspend fun save(t: LedgerTransaction, shares: List<ShareInput> = emptyList()) {
+    suspend fun save(t: LedgerTransaction, shares: List<ShareInput> = emptyList(), pendingId: Long? = null) {
         val clean = when {
             // 轉帳:固定歸「轉帳」分類、算付款方的支出側,不能同時有「我的份」
             t.transferToAccountId != null -> t.copy(
@@ -60,6 +70,7 @@ class LedgerRepository(private val db: LedgerDatabase) {
         val normalized = ShareMath.normalize(shares, owed)
         val id = db.withTransaction {
             val savedId = if (clean.id == 0L) transactions.insert(clean) else clean.id.also { transactions.update(clean) }
+            if (pendingId != null) pendingDao.deleteById(pendingId) // 從待確認轉成正式帳目
             shareDao.deleteForTransaction(savedId)
             if (normalized.isNotEmpty()) {
                 shareDao.insertAll(normalized.map { Share(transactionId = savedId, personId = it.personId, amount = it.amount) })

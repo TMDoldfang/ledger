@@ -105,8 +105,23 @@ class LedgerViewModel(private val repo: LedgerRepository) : ViewModel() {
 
     suspend fun load(id: Long): LedgerTransaction? = repo.getTransaction(id)
 
-    fun save(t: LedgerTransaction, shares: List<ShareInput> = emptyList()) {
-        viewModelScope.launch { repo.save(t, shares) }
+    fun save(t: LedgerTransaction, shares: List<ShareInput> = emptyList(), pendingId: Long? = null) {
+        viewModelScope.launch { repo.save(t, shares, pendingId) }
+    }
+
+    /** 自動偵測到、等你確認的刷卡通知。 */
+    val pending = repo.pending.stateIn(viewModelScope, whileSubscribed, emptyList())
+
+    /** 把截圖辨識出的金額補到待確認的那一筆。 */
+    fun fillPendingAmount(id: Long, amount: Long) {
+        viewModelScope.launch {
+            repo.fillPendingAmount(id, amount)
+            messageChannel.send("已補上金額 NT$$amount")
+        }
+    }
+
+    fun deletePending(id: Long) {
+        viewModelScope.launch { repo.deletePending(id) }
     }
 
     suspend fun loadShares(id: Long): List<Share> = repo.sharesOf(id)

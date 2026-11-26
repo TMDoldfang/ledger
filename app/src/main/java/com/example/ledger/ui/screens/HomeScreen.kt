@@ -15,6 +15,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Image
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
@@ -46,6 +50,8 @@ import com.example.ledger.settings.AppSettings
 import com.example.ledger.data.TransactionItem
 import com.example.ledger.ui.LedgerViewModel
 import com.example.ledger.ui.MonthSwitcher
+import com.example.ledger.ui.PendingSheet
+import com.example.ledger.ui.ShareInbox
 import com.example.ledger.ui.ReceivablesSheet
 import com.example.ledger.ui.VoiceSheet
 import com.example.ledger.ui.theme.expenseColor
@@ -71,12 +77,18 @@ fun HomeScreen(vm: LedgerViewModel, onAdd: () -> Unit, onEdit: (Long) -> Unit) {
     var showVoice by remember { mutableStateOf(false) }
     val receivables by vm.receivables.collectAsStateWithLifecycle()
     var showReceivables by remember { mutableStateOf(false) }
+    val pending by vm.pending.collectAsStateWithLifecycle()
+    var showPending by remember { mutableStateOf(false) }
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) ShareInbox.uri.value = uri
+    }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             MonthSwitcher(month, vm::prevMonth, vm::nextMonth)
             SummaryCard(totals)
             BudgetLine(budgetSpent)
+            if (pending.isNotEmpty()) PendingBanner(pending.size, pending.count { it.amount == null }) { showPending = true }
             if (receivables.isNotEmpty()) ReceivableBanner(receivables) { showReceivables = true }
             OutlinedTextField(
                 value = query,
@@ -111,6 +123,11 @@ fun HomeScreen(vm: LedgerViewModel, onAdd: () -> Unit, onEdit: (Long) -> Unit) {
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            SmallFloatingActionButton(onClick = {
+                pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            }) {
+                Icon(Icons.Filled.Image, contentDescription = "從相簿選刷卡截圖辨識")
+            }
             SmallFloatingActionButton(onClick = onAdd) {
                 Icon(Icons.Filled.Add, contentDescription = "手動新增帳目")
             }
@@ -121,6 +138,18 @@ fun HomeScreen(vm: LedgerViewModel, onAdd: () -> Unit, onEdit: (Long) -> Unit) {
     }
 
     if (showReceivables) ReceivablesSheet(vm = vm, onDismiss = { showReceivables = false })
+
+    if (showPending) {
+        PendingSheet(
+            vm = vm,
+            onDismiss = { showPending = false },
+            onOpenEditor = { draft ->
+                vm.setDraft(draft)
+                showPending = false
+                onAdd()
+            },
+        )
+    }
 
     if (showVoice) {
         VoiceSheet(
@@ -174,6 +203,23 @@ private fun BudgetLine(spent: Long) {
             progress = { (spent.toFloat() / limit).coerceIn(0f, 1f) },
             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
         )
+    }
+}
+
+/** 首頁的待確認提示:自動偵測到、還沒記成帳目的刷卡。 */
+@Composable
+private fun PendingBanner(count: Int, noAmount: Int, onClick: () -> Unit) {
+    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clickable(onClick = onClick)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+            Text("待確認刷卡 $count 筆", style = MaterialTheme.typography.titleSmall)
+            if (noAmount > 0) {
+                Text(
+                    "其中 $noAmount 筆金額要自己補",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
     }
 }
 

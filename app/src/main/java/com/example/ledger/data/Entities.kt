@@ -106,3 +106,15 @@ data class Share(
     val personId: Long,
     val amount: Long,
 )
+
+/**
+ * 自動偵測到的刷卡通知,先放這裡等使用者確認。[amount] 為 null = 通知沒有金額(例如統一企業卡),之後補。
+ * [card] 存 DetectedCard 的名稱。
+ */
+@Entity(tableName = "pending_entries")
+data class PendingEntry(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val timestamp: Long,
+    val card: String,
+    val amount: Long? = null,
+)
