@@ -1,5 +1,6 @@
 package com.example.ledger.ui.screens
 
+import com.example.ledger.ui.rememberDeleteConfirm
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -60,6 +61,7 @@ private val BASIC_FEATURES = listOf(
 /** 設定頁:上面是一直開著的基本功能,下面是可以自己開關的附加功能。 */
 @Composable
 fun SettingsScreen() {
+    val askDelete = rememberDeleteConfirm()
     val context = LocalContext.current
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -72,6 +74,26 @@ fun SettingsScreen() {
         ) {
             BASIC_FEATURES.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
         }
+
+        // 刪除前的確認提示:在確認框勾了「不再顯示」之後,可以在這裡重新打開
+        var confirmDelete by remember { mutableStateOf(!AppSettings.skipDeleteConfirm(context)) }
+        FeatureRow(
+            title = "刪除前先確認",
+            description = "刪除帳目、帳戶、分類等之前先跳出確認。確認框裡勾「以後不再顯示」就會關閉,可在這裡重新打開。",
+            checked = confirmDelete,
+            onCheckedChange = {
+                confirmDelete = it
+                AppSettings.setSkipDeleteConfirm(context, !it)
+            },
+        )
+        TextButton(
+            onClick = {
+                // 把所有「以後不再顯示」的提示還原成預設(目前只有刪除確認)
+                AppSettings.setSkipDeleteConfirm(context, false)
+                confirmDelete = true
+            },
+            modifier = Modifier.padding(horizontal = 8.dp),
+        ) { Text("還原所有提示(重新顯示被關掉的提醒)") }
 
         SectionTitle("附加功能(可自行開啟)")
 
@@ -162,8 +184,10 @@ fun SettingsScreen() {
                         }
                         TextButton(onClick = { editingPlan = p }) { Text("修改") }
                         TextButton(onClick = {
-                            plans = plans.filter { it.id != p.id }
-                            ReminderSettings.saveInvestPlans(context, plans)
+                            askDelete("刪除「${p.name}」?", "刪除後不會再提醒這一組。") {
+                                plans = plans.filter { it.id != p.id }
+                                ReminderSettings.saveInvestPlans(context, plans)
+                            }
                         }) { Text("刪除") }
                     }
                 }
@@ -250,6 +274,7 @@ fun SettingsScreen() {
         var autoOn by remember { mutableStateOf(AppSettings.autoDetectEnabled(context)) }
         var accessOn by remember { mutableStateOf(NoticeAccess.isGranted(context)) }
         var showAccessHelp by remember { mutableStateOf(false) }
+        var showEnableWarning by remember { mutableStateOf(false) }
         var lastDetected by remember { mutableStateOf(AppSettings.lastDetected(context)) }
         var lastTitle by remember { mutableStateOf(AppSettings.lastLineTitle(context)) }
         LifecycleResumeEffect(Unit) {
@@ -259,22 +284,84 @@ fun SettingsScreen() {
             onPauseOrDispose { }
         }
         FeatureRow(
-            title = "自動偵測訊息入帳",
-            description = "偵測 LINE 裡中國信託、LINE錢包的刷卡通知,先放進「待確認」(不算進統計),每晚 21:00 提醒你補分類。" +
-                "LINE Pay 卡會自動帶金額;統一企業卡(uniopen)通知沒有金額,要自己補。只讀這兩個官方帳號的通知,其他一律不看、不存。",
+            title = "自動偵測通知入帳",
+            description = "偵測你指定的官方帳號通知,自動建立記帳項目。\n" +
+                "• 通知含金額:自動建立並填好金額。\n" +
+                "• 通知不含金額:先建立項目、金額留空,在設定的時間提醒你補上。\n" +
+                "• 同一筆消費的多則通知,盡量合併成一筆。\n" +
+                "建立的項目先放在「待確認」,不算進統計;你按「記帳」之後才會入帳。",
             checked = autoOn,
             onCheckedChange = { on ->
-                autoOn = on
-                AppSettings.setAutoDetectEnabled(context, on)
                 if (on) {
-                    PendingReminder.ensureScheduled(context)
-                    if (!accessOn) showAccessHelp = true
+                    showEnableWarning = true // 先看注意事項,按「繼續」才真的開啟
                 } else {
+                    autoOn = false
+                    AppSettings.setAutoDetectEnabled(context, false)
                     PendingReminder.cancel(context)
                 }
             },
         )
+        if (showEnableWarning) {
+            AlertDialog(
+                onDismissRequest = { showEnableWarning = false },
+                title = { Text("開啟前請注意") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("• 需要開啟「通知存取權」,系統會再請你授權。")
+                        Text("• 只讀取你指定的來源(目前是 LINE 裡中國信託、LINE錢包),其他通知不看、不存。")
+                        Text("• 如果 LINE 關閉了「顯示訊息內容」,就讀不到金額,只會建立「待補金額」的項目。")
+                        Text("• 自動判斷可能出錯,請定期檢查。")
+                        Text("• 可以隨時關閉,已經記下的帳不受影響。")
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showEnableWarning = false
+                        autoOn = true
+                        AppSettings.setAutoDetectEnabled(context, true)
+                        PendingReminder.reschedule(context)
+                        if (!accessOn) showAccessHelp = true
+                    }) { Text("繼續") }
+                },
+                dismissButton = { TextButton(onClick = { showEnableWarning = false }) { Text("取消") } },
+            )
+        }
         if (autoOn) {
+            // 待補金額提醒:一個可調的時間(預設 21:00),或關閉
+            var remindOn by remember { mutableStateOf(AppSettings.pendingRemindEnabled(context)) }
+            var remindMin by remember { mutableStateOf(AppSettings.pendingRemindMinuteOfDay(context)) }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("待補金額提醒", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        if (remindOn) "每天 %02d:%02d,有待補金額才通知".format(remindMin / 60, remindMin % 60)
+                        else "不提醒",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (remindOn) {
+                    TextButton(onClick = {
+                        android.app.TimePickerDialog(
+                            context,
+                            { _, h, m ->
+                                remindMin = h * 60 + m
+                                AppSettings.setPendingRemindMinuteOfDay(context, remindMin)
+                                PendingReminder.reschedule(context)
+                            },
+                            remindMin / 60, remindMin % 60, true,
+                        ).show()
+                    }) { Text("改時間") }
+                }
+                Switch(checked = remindOn, onCheckedChange = {
+                    remindOn = it
+                    AppSettings.setPendingRemindEnabled(context, it)
+                    if (it) PendingReminder.reschedule(context) else PendingReminder.cancel(context)
+                })
+            }
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),

@@ -12,6 +12,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.ledger.ui.LedgerRoot
 import com.example.ledger.ui.LedgerViewModel
+import com.example.ledger.ui.PendingNav
 import com.example.ledger.ui.ShareInbox
 import com.example.ledger.ui.theme.LedgerTheme
 
@@ -26,6 +27,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         handleShare(intent)
+        handleOpenPending(intent)
         setContent {
             LedgerTheme {
                 LedgerRoot(vm)
@@ -33,11 +35,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 在別的 App(例如相簿、LINE)按「分享」選簡記,圖片會送到這裡等著辨識
+    // 在別的 App(例如相簿、LINE)按「分享」選「把錢丟進來」,圖片會送到這裡等著辨識
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         handleShare(intent)
+        handleOpenPending(intent)
+    }
+
+    private fun handleOpenPending(intent: Intent?) {
+        if (intent?.getBooleanExtra(PendingNav.EXTRA_OPEN_MISSING, false) == true) {
+            PendingNav.openMissing.value = true
+            intent.removeExtra(PendingNav.EXTRA_OPEN_MISSING)
+        }
     }
 
     @Suppress("DEPRECATION")

@@ -2,6 +2,7 @@
 
 package com.example.ledger.ui.screens
 
+import com.example.ledger.ui.rememberDeleteConfirm
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -50,6 +51,7 @@ import com.example.ledger.util.formatMoney
 
 @Composable
 fun ManageScreen(vm: LedgerViewModel, updateVm: UpdateViewModel) {
+    val askDelete = rememberDeleteConfirm()
     val accounts by vm.accounts.collectAsStateWithLifecycle()
     val categories by vm.categories.collectAsStateWithLifecycle()
     var showAccountDialog by remember { mutableStateOf(false) }
@@ -76,7 +78,7 @@ fun ManageScreen(vm: LedgerViewModel, updateVm: UpdateViewModel) {
                     )
                 }
                 Text(formatMoney(a.balance), style = MaterialTheme.typography.titleMedium)
-                IconButton(onClick = { vm.deleteAccount(a.id) }) {
+                IconButton(onClick = { askDelete("刪除帳戶「${a.name}」?", "刪除後無法復原。已有帳目的帳戶無法刪除。") { vm.deleteAccount(a.id) } }) {
                     Icon(Icons.Filled.Delete, contentDescription = "刪除帳戶")
                 }
             }
@@ -102,7 +104,7 @@ fun ManageScreen(vm: LedgerViewModel, updateVm: UpdateViewModel) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                IconButton(onClick = { vm.deleteCategory(c.id) }) {
+                IconButton(onClick = { askDelete("刪除分類「${c.name}」?", "刪除後無法復原。已有帳目的分類無法刪除。") { vm.deleteCategory(c.id) } }) {
                     Icon(Icons.Filled.Delete, contentDescription = "刪除分類")
                 }
             }
@@ -133,7 +135,7 @@ fun ManageScreen(vm: LedgerViewModel, updateVm: UpdateViewModel) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                IconButton(onClick = { vm.deletePerson(p.personId) }) {
+                IconButton(onClick = { askDelete("刪除代墊對象「${p.name}」?", "刪除後無法復原。已有代墊紀錄的人無法刪除。") { vm.deletePerson(p.personId) } }) {
                     Icon(Icons.Filled.Delete, contentDescription = "刪除代墊對象")
                 }
             }

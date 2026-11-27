@@ -35,6 +35,8 @@ class LedgerRepository(private val db: LedgerDatabase) {
     suspend fun deletePending(id: Long) = pendingDao.deleteById(id)
     suspend fun pendingAwaitingAmount(since: Long): List<PendingEntry> = pendingDao.awaitingAmount(since)
     suspend fun pendingCount(): Int = pendingDao.count()
+    /** 還沒填金額的筆數(不分日期)。 */
+    suspend fun pendingMissingAmountCount(): Int = pendingDao.countMissingAmount()
 
     suspend fun sharesOf(transactionId: Long): List<Share> = shareDao.forTransaction(transactionId)
 

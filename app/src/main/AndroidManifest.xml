@@ -31,7 +31,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- 從別的 App 分享截圖到簡記,辨識刷卡通知 -->
+            <!-- 從別的 App 分享截圖到「把錢丟進來」,辨識刷卡通知 -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />

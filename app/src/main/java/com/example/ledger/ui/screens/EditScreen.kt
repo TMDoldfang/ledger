@@ -2,6 +2,7 @@
 
 package com.example.ledger.ui.screens
 
+import com.example.ledger.ui.rememberDeleteConfirm
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -84,6 +85,7 @@ private fun encodePicked(map: Map<Long, String>): String =
 
 @Composable
 fun EditScreen(vm: LedgerViewModel, id: Long, onDone: () -> Unit) {
+    val askDelete = rememberDeleteConfirm()
     val zone = remember { ZoneId.systemDefault() }
     val categories by vm.categories.collectAsStateWithLifecycle()
     val accounts by vm.accounts.collectAsStateWithLifecycle()
@@ -118,7 +120,6 @@ fun EditScreen(vm: LedgerViewModel, id: Long, onDone: () -> Unit) {
     var note by rememberSaveable { mutableStateOf(draft?.note ?: "") }
     var loaded by rememberSaveable { mutableStateOf(id == 0L) }
     var showPicker by remember { mutableStateOf(false) }
-    var showDelete by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
 
     // 編輯既有帳目:載入一次
@@ -201,7 +202,12 @@ fun EditScreen(vm: LedgerViewModel, id: Long, onDone: () -> Unit) {
             onBack = onDone,
             actions = {
                 if (id != 0L) {
-                    IconButton(onClick = { showDelete = true }) {
+                    IconButton(onClick = {
+                        askDelete("刪除這筆帳目?", "刪除後無法復原。") {
+                            vm.delete(id)
+                            onDone()
+                        }
+                    }) {
                         Icon(Icons.Filled.Delete, contentDescription = "刪除")
                     }
                 }
@@ -427,19 +433,4 @@ fun EditScreen(vm: LedgerViewModel, id: Long, onDone: () -> Unit) {
         ) { DatePicker(state = state) }
     }
 
-    if (showDelete) {
-        AlertDialog(
-            onDismissRequest = { showDelete = false },
-            title = { Text("刪除這筆帳目?") },
-            text = { Text("刪除後無法復原。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showDelete = false
-                    vm.delete(id)
-                    onDone()
-                }) { Text("刪除") }
-            },
-            dismissButton = { TextButton(onClick = { showDelete = false }) { Text("取消") } },
-        )
-    }
 }

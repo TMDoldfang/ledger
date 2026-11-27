@@ -30,6 +30,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,6 +51,7 @@ import com.example.ledger.settings.AppSettings
 import com.example.ledger.data.TransactionItem
 import com.example.ledger.ui.LedgerViewModel
 import com.example.ledger.ui.MonthSwitcher
+import com.example.ledger.ui.PendingNav
 import com.example.ledger.ui.PendingSheet
 import com.example.ledger.ui.ShareInbox
 import com.example.ledger.ui.ReceivablesSheet
@@ -79,6 +81,16 @@ fun HomeScreen(vm: LedgerViewModel, onAdd: () -> Unit, onEdit: (Long) -> Unit) {
     var showReceivables by remember { mutableStateOf(false) }
     val pending by vm.pending.collectAsStateWithLifecycle()
     var showPending by remember { mutableStateOf(false) }
+    var pendingMissingOnly by remember { mutableStateOf(false) }
+    // 點了「待補金額」通知:直接打開清單並只顯示待補金額(App 開著或剛被叫起來都一樣)
+    val openMissing by PendingNav.openMissing.collectAsStateWithLifecycle()
+    LaunchedEffect(openMissing) {
+        if (openMissing) {
+            pendingMissingOnly = true
+            showPending = true
+            PendingNav.openMissing.value = false
+        }
+    }
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) ShareInbox.uri.value = uri
     }
@@ -88,7 +100,7 @@ fun HomeScreen(vm: LedgerViewModel, onAdd: () -> Unit, onEdit: (Long) -> Unit) {
             MonthSwitcher(month, vm::prevMonth, vm::nextMonth)
             SummaryCard(totals)
             BudgetLine(budgetSpent)
-            if (pending.isNotEmpty()) PendingBanner(pending.size, pending.count { it.amount == null }) { showPending = true }
+            if (pending.isNotEmpty()) PendingBanner(pending.size, pending.count { it.amount == null }) { pendingMissingOnly = false; showPending = true }
             if (receivables.isNotEmpty()) ReceivableBanner(receivables) { showReceivables = true }
             OutlinedTextField(
                 value = query,
@@ -142,6 +154,7 @@ fun HomeScreen(vm: LedgerViewModel, onAdd: () -> Unit, onEdit: (Long) -> Unit) {
     if (showPending) {
         PendingSheet(
             vm = vm,
+            initialMissingOnly = pendingMissingOnly,
             onDismiss = { showPending = false },
             onOpenEditor = { draft ->
                 vm.setDraft(draft)
@@ -226,7 +239,7 @@ private fun PendingBanner(count: Int, noAmount: Int, onClick: () -> Unit) {
             Text("待確認刷卡 $count 筆", style = MaterialTheme.typography.titleSmall)
             if (noAmount > 0) {
                 Text(
-                    "其中 $noAmount 筆金額要自己補",
+                    "其中 $noAmount 筆待補金額",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )

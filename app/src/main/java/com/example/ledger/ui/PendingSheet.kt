@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -22,7 +23,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -42,7 +45,14 @@ import java.time.ZoneId
  * 補好分類存檔後,這一筆待確認就會消失;不要的按垃圾桶刪掉。
  */
 @Composable
-fun PendingSheet(vm: LedgerViewModel, onDismiss: () -> Unit, onOpenEditor: (TransactionDraft) -> Unit) {
+fun PendingSheet(
+    vm: LedgerViewModel,
+    onDismiss: () -> Unit,
+    onOpenEditor: (TransactionDraft) -> Unit,
+    initialMissingOnly: Boolean = false,
+) {
+    var missingOnly by remember { mutableStateOf(initialMissingOnly) }
+    val askDelete = rememberDeleteConfirm()
     val pending by vm.pending.collectAsStateWithLifecycle()
     val accounts by vm.accounts.collectAsStateWithLifecycle()
     val categories by vm.categories.collectAsStateWithLifecycle()
@@ -84,10 +94,20 @@ fun PendingSheet(vm: LedgerViewModel, onDismiss: () -> Unit, onOpenEditor: (Tran
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (pending.isEmpty()) {
-                Text("目前沒有待確認的刷卡", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val missingCount = pending.count { it.amount == null }
+            FilterChip(
+                selected = missingOnly,
+                onClick = { missingOnly = !missingOnly },
+                label = { Text("待補金額 $missingCount 筆") },
+            )
+            val shown = if (missingOnly) pending.filter { it.amount == null } else pending
+            if (shown.isEmpty()) {
+                Text(
+                    if (missingOnly) "沒有待補金額的項目" else "目前沒有待確認的刷卡",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            pending.forEach { e ->
+            shown.forEach { e ->
                 Card(Modifier.fillMaxWidth()) {
                     Row(
                         Modifier.padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
@@ -103,14 +123,14 @@ fun PendingSheet(vm: LedgerViewModel, onDismiss: () -> Unit, onOpenEditor: (Tran
                             )
                             Text(
                                 "${date.monthValue}/${date.dayOfMonth} %02d:%02d · ".format(dt.hour, dt.minute) +
-                                    (e.amount?.let { formatMoney(it) } ?: "金額未填"),
+                                    (e.amount?.let { formatMoney(it) } ?: "待補金額"),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (e.amount == null) MaterialTheme.colorScheme.error
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         Button(onClick = { onOpenEditor(draftOf(e)) }) { Text("記帳") }
-                        IconButton(onClick = { vm.deletePending(e.id) }) {
+                        IconButton(onClick = { askDelete("刪除這筆待確認?", "刪除後無法復原。") { vm.deletePending(e.id) } }) {
                             Icon(Icons.Filled.Delete, contentDescription = "刪除這筆待確認")
                         }
                     }

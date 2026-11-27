@@ -286,6 +286,9 @@ interface PendingDao {
     @Query("SELECT * FROM pending_entries WHERE card = 'LINE_PAY' AND amount IS NULL AND timestamp >= :since")
     suspend fun awaitingAmount(since: Long): List<PendingEntry>
 
+    @Query("SELECT COUNT(*) FROM pending_entries WHERE amount IS NULL")
+    suspend fun countMissingAmount(): Int
+
     @Query("SELECT COUNT(*) FROM pending_entries")
     suspend fun count(): Int
 }

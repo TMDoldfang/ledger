@@ -15,6 +15,9 @@ object AppSettings {
     private const val KEY_LAST_LINE_TITLE = "last_line_title"
     private const val KEY_LAST_DETECTED = "last_detected"
     private const val KEY_LAST_DETECTED_AT = "last_detected_at"
+    private const val KEY_PEND_REMIND_ON = "pending_remind_on"
+    private const val KEY_PEND_REMIND_MIN = "pending_remind_minute_of_day"
+    private const val KEY_SKIP_DELETE_CONFIRM = "skip_delete_confirm"
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -31,6 +34,20 @@ object AppSettings {
     fun budgetNotified(context: Context): String? = prefs(context).getString(KEY_BUDGET_NOTIFIED, null)
     fun setBudgetNotified(context: Context, value: String) =
         prefs(context).edit().putString(KEY_BUDGET_NOTIFIED, value).apply()
+
+    // 待補金額提醒:預設開、21:00(舊用戶不變)。時間存「一天中的第幾分鐘」。
+    fun pendingRemindEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_PEND_REMIND_ON, true)
+    fun setPendingRemindEnabled(context: Context, on: Boolean) =
+        prefs(context).edit().putBoolean(KEY_PEND_REMIND_ON, on).apply()
+
+    fun pendingRemindMinuteOfDay(context: Context): Int = prefs(context).getInt(KEY_PEND_REMIND_MIN, 21 * 60)
+    fun setPendingRemindMinuteOfDay(context: Context, minute: Int) =
+        prefs(context).edit().putInt(KEY_PEND_REMIND_MIN, minute.coerceIn(0, 24 * 60 - 1)).apply()
+
+    // 刪除前的確認提示:預設會問(skip = false);在確認框勾「不再顯示」後變 true,設定頁可改回來。
+    fun skipDeleteConfirm(context: Context): Boolean = prefs(context).getBoolean(KEY_SKIP_DELETE_CONFIRM, false)
+    fun setSkipDeleteConfirm(context: Context, skip: Boolean) =
+        prefs(context).edit().putBoolean(KEY_SKIP_DELETE_CONFIRM, skip).apply()
 
     // 自動偵測訊息入帳:預設關閉,在設定頁開啟。
     fun autoDetectEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_AUTO_DETECT, false)

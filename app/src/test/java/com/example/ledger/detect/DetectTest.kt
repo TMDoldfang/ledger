@@ -75,6 +75,22 @@ class PendingScheduleTest {
     @Test fun afterNinePmIsTomorrow() =
         assertEquals(LocalDateTime.of(2026, 11, 27, 21, 0), PendingSchedule.nextReminder(LocalDateTime.of(2026, 11, 26, 21, 0)))
 
+    @Test fun customTimeToday() =
+        assertEquals(LocalDateTime.of(2026, 11, 26, 8, 30),
+            PendingSchedule.nextReminder(LocalDateTime.of(2026, 11, 26, 7, 0), java.time.LocalTime.of(8, 30)))
+
+    @Test fun customTimePassedGoesTomorrow() =
+        assertEquals(LocalDateTime.of(2026, 11, 27, 8, 30),
+            PendingSchedule.nextReminder(LocalDateTime.of(2026, 11, 26, 9, 0), java.time.LocalTime.of(8, 30)))
+
+    @Test fun itemAddedAfterRemindTimeIsRemindedNextDay() =
+        assertEquals(LocalDateTime.of(2026, 11, 27, 21, 0),
+            PendingSchedule.nextReminder(LocalDateTime.of(2026, 11, 26, 22, 5)))
+
+    @Test fun exactlyAtTimeGoesTomorrow() =
+        assertEquals(LocalDateTime.of(2026, 11, 27, 6, 15),
+            PendingSchedule.nextReminder(LocalDateTime.of(2026, 11, 26, 6, 15), java.time.LocalTime.of(6, 15)))
+
     @Test fun monthEndRollsOver() =
         assertEquals(LocalDateTime.of(2026, 12, 1, 21, 0), PendingSchedule.nextReminder(LocalDateTime.of(2026, 11, 30, 22, 30)))
 }
