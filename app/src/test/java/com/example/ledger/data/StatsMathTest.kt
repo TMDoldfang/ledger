@@ -25,11 +25,22 @@ class StatsMathTest {
         assertEquals(-1200L, t.balance)
     }
 
-    @Test fun settlementIsNotIncomeButCountsInBalance() {
+    @Test fun settlementCountsAsIncome() {
         val t = StatsMath.totals(listOf(tx(2, 900, isExpense = false, category = "代墊收回", settlesId = 1)))
-        assertEquals(0L, t.income)
+        assertEquals(900L, t.income)
         assertEquals(900L, t.settledIn)
         assertEquals(900L, t.balance)
+    }
+
+    @Test fun incomeIsSalaryPlusSettlement() {
+        val t = StatsMath.totals(listOf(
+            tx(1, 1200, myShare = 300),
+            tx(2, 900, isExpense = false, category = "代墊收回", settlesId = 1),
+            tx(3, 50000, isExpense = false, category = "薪資"),
+        ))
+        assertEquals(50900L, t.income)
+        assertEquals(1200L, t.expense)
+        assertEquals(49700L, t.balance)
     }
 
     @Test fun transfersAreIgnored() {

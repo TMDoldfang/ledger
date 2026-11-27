@@ -73,7 +73,7 @@ fun StatsScreen(vm: LedgerViewModel) {
                 Text(
                     listOfNotNull(
                         if (stats.totals.proxy > 0) "支出含代墊 ${formatMoney(stats.totals.proxy)}" else null,
-                        if (stats.totals.settledIn > 0) "本月收回 +${formatMoney(stats.totals.settledIn)}(已列入結餘)" else null,
+                        if (stats.totals.settledIn > 0) "本月收回 +${formatMoney(stats.totals.settledIn)}(已含在收入)" else null,
                     ).joinToString(" · "),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

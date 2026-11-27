@@ -10,6 +10,11 @@ enum class DetectedCard(val label: String) {
 
     companion object {
         fun from(name: String): DetectedCard = entries.firstOrNull { it.name == name } ?: UNKNOWN
+
+        /** 待確認裡顯示的名稱:自訂來源顯示來源名稱,其他用卡別名稱。 */
+        fun labelOf(card: String): String =
+            if (card.startsWith(CustomSources.CARD_PREFIX)) card.removePrefix(CustomSources.CARD_PREFIX).ifBlank { "自訂來源" }
+            else from(card).label
     }
 }
 

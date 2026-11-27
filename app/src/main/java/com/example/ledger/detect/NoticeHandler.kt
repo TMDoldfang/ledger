@@ -54,4 +54,20 @@ class NoticeHandler(private val repo: LedgerRepository) {
         }
         return null
     }
+
+    /**
+     * 自訂來源的通知:用通用規則抓金額,抓不到就直接忽略(不建立待補金額,避免雜訊)。
+     * @return 處理結果文字,忽略時回傳 null。
+     */
+    suspend fun handleCustom(source: CustomSource, title: String, text: String, postTime: Long, key: String): String? =
+        mutex.withLock {
+            val dedupe = "$key@$postTime"
+            if (dedupe in seen) return null
+            seen.addLast(dedupe)
+            while (seen.size > 50) seen.removeFirst()
+
+            val amount = GenericAmount.find("$title\n$text") ?: return null
+            repo.addPending(CustomSources.cardOf(source), amount, postTime)
+            "${source.appLabel} NT$$amount"
+        }
 }

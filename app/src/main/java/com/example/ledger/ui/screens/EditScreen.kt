@@ -3,6 +3,9 @@
 package com.example.ledger.ui.screens
 
 import com.example.ledger.ui.rememberDeleteConfirm
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -40,7 +43,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -48,6 +54,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ledger.data.LedgerTransaction
+import com.example.ledger.detect.ReceiptParser
+import com.example.ledger.detect.ScreenshotReader
+import kotlinx.coroutines.launch
 import com.example.ledger.data.ShareInput
 import com.example.ledger.data.ShareMath
 import com.example.ledger.ui.AddPersonDialog
@@ -120,6 +129,45 @@ fun EditScreen(vm: LedgerViewModel, id: Long, onDone: () -> Unit) {
     var note by rememberSaveable { mutableStateOf(draft?.note ?: "") }
     var loaded by rememberSaveable { mutableStateOf(id == 0L) }
     var showPicker by remember { mutableStateOf(false) }
+    // 從「待確認」來的:記住通知的日期,方便對照、提醒跨月
+    val notifyDate = if (draft?.pendingId != null) draft.date else null
+    // 用截圖補資料(辨識只在手機上,圖片不存檔,卡號不會被記下)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var shotMsg by remember { mutableStateOf<String?>(null) }
+    var shotReading by remember { mutableStateOf(false) }
+    val pickShot = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            shotReading = true
+            shotMsg = null
+            scope.launch {
+                val lines = ScreenshotReader.readLines(context, uri)
+                shotReading = false
+                if (lines == null) {
+                    shotMsg = "讀不到這張圖,請換一張再試"
+                    return@launch
+                }
+                val shot = ReceiptParser.parse(lines)
+                val filled = mutableListOf<String>()
+                var mismatch: Long? = null
+                shot.date?.let { dateText = it.toString(); filled += "日期" }
+                shot.time?.let { timeText = it.withSecond(0).withNano(0).toString() }
+                shot.amount?.let { a ->
+                    if (amountText.isBlank()) { amountText = a.toString(); filled += "金額" }
+                    else if (amountText.toLongOrNull() != a) mismatch = a
+                }
+                shot.merchant?.let { m -> if (note.isBlank()) { note = m.take(60); filled += "備註" } }
+                shotMsg = buildString {
+                    if (filled.isEmpty() && mismatch == null) append("沒有辨識出可用的資料")
+                    if (filled.isNotEmpty()) append("已從截圖帶入:${filled.joinToString("、")}")
+                    if (mismatch != null) {
+                        if (isNotEmpty()) append("。")
+                        append("截圖的金額是 ${formatMoney(mismatch!!)},和目前填的不同,沒有覆蓋")
+                    }
+                }
+            }
+        }
+    }
     val focus = remember { FocusRequester() }
 
     // 編輯既有帳目:載入一次
@@ -240,6 +288,15 @@ fun EditScreen(vm: LedgerViewModel, id: Long, onDone: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().focusRequester(focus),
             )
 
+            if (!isSettlement) {
+                OutlinedButton(enabled = !shotReading, onClick = {
+                    pickShot.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }) { Text(if (shotReading) "辨識中…" else "用截圖補資料(日期、金額、商店)") }
+                shotMsg?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
             if (!isTransfer && !isSettlement) {
                 Text("分類", style = MaterialTheme.typography.labelLarge)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -354,8 +411,27 @@ fun EditScreen(vm: LedgerViewModel, id: Long, onDone: () -> Unit) {
             }
 
             Text("日期", style = MaterialTheme.typography.labelLarge)
-            OutlinedButton(onClick = { showPicker = true }) {
-                Text(LocalDate.parse(dateText).format(DateFormatter))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(onClick = { showPicker = true }) {
+                    Text(LocalDate.parse(dateText).format(DateFormatter))
+                }
+                TextButton(onClick = { dateText = LocalDate.parse(dateText).minusDays(1).toString() }) { Text("前一天") }
+                TextButton(onClick = { dateText = LocalDate.parse(dateText).minusDays(2).toString() }) { Text("前兩天") }
+            }
+            if (notifyDate != null) {
+                val chosen = LocalDate.parse(dateText)
+                Text(
+                    "通知是 ${notifyDate.monthValue}/${notifyDate.dayOfMonth} 收到的,實際消費日期可能更早",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (chosen.year != notifyDate.year || chosen.monthValue != notifyDate.monthValue) {
+                    Text(
+                        "注意:這筆會記在 ${chosen.monthValue} 月(通知是 ${notifyDate.monthValue} 月收到的)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
 
             OutlinedTextField(

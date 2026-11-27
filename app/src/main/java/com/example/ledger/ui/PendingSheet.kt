@@ -118,11 +118,11 @@ fun PendingSheet(
                             val dt = Instant.ofEpochMilli(e.timestamp).atZone(zone)
                             val date = dt.toLocalDate()
                             Text(
-                                DetectedCard.from(e.card).label,
+                                DetectedCard.labelOf(e.card),
                                 style = MaterialTheme.typography.bodyLarge,
                             )
                             Text(
-                                "${date.monthValue}/${date.dayOfMonth} %02d:%02d · ".format(dt.hour, dt.minute) +
+                                "通知 ${date.monthValue}/${date.dayOfMonth} %02d:%02d · ".format(dt.hour, dt.minute) +
                                     (e.amount?.let { formatMoney(it) } ?: "待補金額"),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (e.amount == null) MaterialTheme.colorScheme.error

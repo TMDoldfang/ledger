@@ -1,6 +1,9 @@
 package com.example.ledger.settings
 
 import android.content.Context
+import com.example.ledger.detect.CustomSource
+import com.example.ledger.detect.CustomSources
+import com.example.ledger.detect.RecentNotice
 
 /** 附加功能的開關與設定,存在手機本機。除非特別說明,附加功能預設都是關閉。 */
 object AppSettings {
@@ -17,6 +20,10 @@ object AppSettings {
     private const val KEY_LAST_DETECTED_AT = "last_detected_at"
     private const val KEY_PEND_REMIND_ON = "pending_remind_on"
     private const val KEY_PEND_REMIND_MIN = "pending_remind_minute_of_day"
+    private const val KEY_SRC_CTBC = "source_ctbc_on"
+    private const val KEY_SRC_WALLET = "source_wallet_on"
+    private const val KEY_CUSTOM_SOURCES = "custom_sources"
+    private const val KEY_RECENT_NOTICES = "recent_notices"
     private const val KEY_SKIP_DELETE_CONFIRM = "skip_delete_confirm"
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -34,6 +41,37 @@ object AppSettings {
     fun budgetNotified(context: Context): String? = prefs(context).getString(KEY_BUDGET_NOTIFIED, null)
     fun setBudgetNotified(context: Context, value: String) =
         prefs(context).edit().putString(KEY_BUDGET_NOTIFIED, value).apply()
+
+    // 內建來源(LINE 裡的中國信託、LINE錢包)可以各自關掉,預設都開
+    fun sourceCtbcEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_SRC_CTBC, true)
+    fun setSourceCtbcEnabled(context: Context, on: Boolean) =
+        prefs(context).edit().putBoolean(KEY_SRC_CTBC, on).apply()
+    fun sourceWalletEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_SRC_WALLET, true)
+    fun setSourceWalletEnabled(context: Context, on: Boolean) =
+        prefs(context).edit().putBoolean(KEY_SRC_WALLET, on).apply()
+
+    // 自訂來源與最近收到的通知(只存 App 與標題,不存內容)
+    fun customSources(context: Context): List<CustomSource> =
+        CustomSources.decode(prefs(context).getString(KEY_CUSTOM_SOURCES, "").orEmpty())
+
+    @Synchronized
+    fun updateCustomSources(context: Context, change: (List<CustomSource>) -> List<CustomSource>): List<CustomSource> {
+        val next = change(customSources(context))
+        prefs(context).edit().putString(KEY_CUSTOM_SOURCES, CustomSources.encode(next)).apply()
+        return next
+    }
+
+    fun recentNotices(context: Context): List<RecentNotice> =
+        CustomSources.decodeRecent(prefs(context).getString(KEY_RECENT_NOTICES, "").orEmpty())
+
+    @Synchronized
+    fun addRecentNotice(context: Context, n: RecentNotice) {
+        val next = CustomSources.addRecent(recentNotices(context), n)
+        prefs(context).edit().putString(KEY_RECENT_NOTICES, CustomSources.encodeRecent(next)).apply()
+    }
+
+    fun clearRecentNotices(context: Context) =
+        prefs(context).edit().remove(KEY_RECENT_NOTICES).apply()
 
     // 待補金額提醒:預設開、21:00(舊用戶不變)。時間存「一天中的第幾分鐘」。
     fun pendingRemindEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_PEND_REMIND_ON, true)

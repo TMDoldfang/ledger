@@ -193,7 +193,7 @@ private fun SummaryCard(totals: MonthTotals) {
             Text(
                 listOfNotNull(
                     if (totals.proxy > 0) "支出含代墊 ${formatMoney(totals.proxy)}" else null,
-                    if (totals.settledIn > 0) "本月收回 +${formatMoney(totals.settledIn)}(已列入結餘)" else null,
+                    if (totals.settledIn > 0) "本月收回 +${formatMoney(totals.settledIn)}(已含在收入)" else null,
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

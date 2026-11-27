@@ -107,12 +107,13 @@ data class MonthPoint(val month: YearMonth, val expense: Long, val income: Long)
  */
 data class MonthTotals(
     val expense: Long = 0,
+    /** 含代墊收回(settledIn)。 */
     val income: Long = 0,
     val settledIn: Long = 0,
     val proxy: Long = 0,
     val proxyReceived: Long = 0,
 ) {
-    val balance: Long get() = income - expense + settledIn
+    val balance: Long get() = income - expense
 }
 
 /** 每個人的代墊累計(管理頁用)。 */

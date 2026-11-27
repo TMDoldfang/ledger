@@ -16,10 +16,12 @@ object StatsMath {
         val normal = list.filter { it.countsInStats }
         val expenses = normal.filter { it.isExpense }
         val proxy = expenses.sumOf { it.proxy }
+        val settledIn = list.filter { it.isSettlement }.sumOf { it.amount }
         return MonthTotals(
             expense = expenses.sumOf { it.amount },
-            income = normal.filter { !it.isExpense }.sumOf { it.amount },
-            settledIn = list.filter { it.isSettlement }.sumOf { it.amount },
+            // 代墊收回算進收入(支出已經是全額,收回才會把差額補回來)
+            income = normal.filter { !it.isExpense }.sumOf { it.amount } + settledIn,
+            settledIn = settledIn,
             proxy = proxy,
             // 已收回不可能超過別人該付的
             proxyReceived = expenses.filter { it.proxy > 0 }.sumOf { minOf(it.settledTotal, it.proxy) },
