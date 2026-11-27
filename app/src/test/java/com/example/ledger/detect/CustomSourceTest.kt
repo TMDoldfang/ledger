@@ -53,4 +53,25 @@ class CustomSourcesTest {
         val l = listOf(RecentNotice("p", "A", "標題"))
         assertEquals(l, CustomSources.decodeRecent(CustomSources.encodeRecent(l)))
     }
+
+    @Test fun textKeyMustAppearWhenSet() {
+        val src = s.copy(textKey = "消費")
+        assertEquals(src, CustomSources.match(listOf(src), "com.bank", "消費通知", "您消費 NT$100"))
+        assertNull(CustomSources.match(listOf(src), "com.bank", "消費通知", "登入驗證"))
+    }
+
+    @Test fun textKeyRoundTripAndOldFormat() {
+        val src = s.copy(textKey = "消費")
+        assertEquals("消費", CustomSources.decode(CustomSources.encode(listOf(src))).single().textKey)
+        // 舊格式(6 欄)仍可讀
+        val old = listOf("1", "com.bank", "某銀行", "標題", "1", "3").joinToString("\u001F")
+        assertEquals("", CustomSources.decode(old).single().textKey)
+    }
+
+    @Test fun activeNamesFollowToggles() {
+        val c = listOf(s.copy(titleKey = "臺灣銀行"), s.copy(id = "2", titleKey = "別家", enabled = false))
+        assertEquals(listOf("臺灣銀行"), CustomSources.activeNames(false, false, c))
+        assertEquals(listOf("中國信託(刷卡通知)", "LINE錢包(付款通知)", "臺灣銀行"), CustomSources.activeNames(true, true, c))
+        assertEquals(emptyList<String>(), CustomSources.activeNames(false, false, emptyList()))
+    }
 }

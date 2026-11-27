@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.example.ledger.detect.CustomSource
+import com.example.ledger.detect.CustomSources
 import com.example.ledger.detect.NoticeAccess
 import com.example.ledger.detect.RecentNotice
 import com.example.ledger.detect.PendingReminder
@@ -279,22 +280,21 @@ fun SettingsScreen() {
         var accessOn by remember { mutableStateOf(NoticeAccess.isGranted(context)) }
         var showAccessHelp by remember { mutableStateOf(false) }
         var showEnableWarning by remember { mutableStateOf(false) }
+        var ctbcOn by remember { mutableStateOf(AppSettings.sourceCtbcEnabled(context)) }
+        var walletOn by remember { mutableStateOf(AppSettings.sourceWalletEnabled(context)) }
+        var sources by remember { mutableStateOf(AppSettings.customSources(context)) }
         var lastDetected by remember { mutableStateOf(AppSettings.lastDetected(context)) }
         var lastTitle by remember { mutableStateOf(AppSettings.lastLineTitle(context)) }
         LifecycleResumeEffect(Unit) {
             accessOn = NoticeAccess.isGranted(context)
+            sources = AppSettings.customSources(context)
             lastDetected = AppSettings.lastDetected(context)
             lastTitle = AppSettings.lastLineTitle(context)
             onPauseOrDispose { }
         }
         FeatureRow(
             title = "自動偵測通知入帳",
-            description = "偵測你指定的官方帳號通知,自動建立記帳項目。\n" +
-                "• 通知含金額:自動建立並填好金額。\n" +
-                "• 通知不含金額:先建立項目、金額留空,在設定的時間提醒你補上。\n" +
-                "• 同一筆消費的多則通知,盡量合併成一筆。\n" +
-                "• 來源可以自己選:內建的 LINE 中國信託、LINE錢包,或在下方新增其他 App。\n" +
-                "建立的項目先放在「待確認」,不算進統計;你按「記帳」之後才會入帳。",
+            description = autoDetectDescription(ctbcOn, walletOn, sources),
             checked = autoOn,
             onCheckedChange = { on ->
                 if (on) {
@@ -313,9 +313,9 @@ fun SettingsScreen() {
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("• 需要開啟「通知存取權」,系統會再請你授權。")
-                        Text("• 只讀取你指定的來源(目前是 LINE 裡中國信託、LINE錢包),其他通知不看、不存。")
-                        Text("• 新增其他 App 作為來源後,App 會把「最近收到的通知」的 App 名稱與標題存在手機本機供你挑選(不存內容、不上傳),可隨時清除。")
-                        Text("• 自訂來源只收「抓得到金額」的通知,抓不到金額的一律忽略。")
+                        Text("• 只讀取設定頁「偵測來源」裡開啟的來源,其他通知不看、不存。")
+                        Text("• 目前只讀取 LINE 的通知。新增 LINE 官方帳號作為來源時,App 會把最近收到的 LINE 通知標題(寄件人名稱,可能包含朋友或群組名稱)存在手機本機供你挑選,不存內容、不上傳,可隨時清除。")
+                        Text("• 自訂的官方帳號只收「抓得到金額」的通知,抓不到金額的一律忽略。")
                         Text("• 如果 LINE 關閉了「顯示訊息內容」,就讀不到金額,只會建立「待補金額」的項目。")
                         Text("• 自動判斷可能出錯,請定期檢查。")
                         Text("• 可以隨時關閉,已經記下的帳不受影響。")
@@ -369,7 +369,12 @@ fun SettingsScreen() {
                     if (it) PendingReminder.reschedule(context) else PendingReminder.cancel(context)
                 })
             }
-            SourcesSection(askDelete)
+            SourcesSection(
+                askDelete = askDelete,
+                ctbcOn = ctbcOn, onCtbc = { ctbcOn = it; AppSettings.setSourceCtbcEnabled(context, it) },
+                walletOn = walletOn, onWallet = { walletOn = it; AppSettings.setSourceWalletEnabled(context, it) },
+                sources = sources, onSources = { sources = it },
+            )
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -524,108 +529,119 @@ private fun PlanDialog(initial: InvestPlan?, onDismiss: () -> Unit, onConfirm: (
     )
 }
 
-/** 偵測來源:內建來源可勾選,自訂來源(App + 標題關鍵字)可新增、暫停、刪除。 */
-@Composable
-private fun SourcesSection(askDelete: (String, String, () -> Unit) -> Unit) {
-    val context = LocalContext.current
-    var ctbcOn by remember { mutableStateOf(AppSettings.sourceCtbcEnabled(context)) }
-    var walletOn by remember { mutableStateOf(AppSettings.sourceWalletEnabled(context)) }
-    var sources by remember { mutableStateOf(AppSettings.customSources(context)) }
-    var showAdd by remember { mutableStateOf(false) }
-    var picked by remember { mutableStateOf<RecentNotice?>(null) }
-
-    // 回到這個畫面時重新讀(計數會在背景增加)
-    LifecycleResumeEffect(Unit) {
-        sources = AppSettings.customSources(context)
-        onPauseOrDispose { }
+/** 說明文字會跟著目前開啟的來源變動。 */
+private fun autoDetectDescription(ctbcOn: Boolean, walletOn: Boolean, custom: List<CustomSource>): String {
+    val names = CustomSources.activeNames(ctbcOn, walletOn, custom)
+    return buildString {
+        if (names.isEmpty()) {
+            append("目前沒有開啟任何偵測來源,不會偵測。請在下方「偵測來源」打開或新增。")
+            return@buildString
+        }
+        append("偵測 LINE 裡這些來源的通知,自動建立記帳項目:\n")
+        names.forEach { append("• $it\n") }
+        append("通知有金額就自動填好;")
+        if (ctbcOn) append("中國信託的卡別通知沒有金額時,先建立、金額留空,在設定的時間提醒你補上;")
+        if (custom.any { it.enabled }) append("自訂的官方帳號只收抓得到金額的通知;")
+        append("同一筆消費的多則通知盡量合併。\n建立的項目先放在「待確認」,不算進統計,你按「記帳」之後才會入帳。")
     }
+}
+
+/** 偵測來源:內建來源可開關,自訂來源(LINE 官方帳號名稱)可新增、暫停、刪除。 */
+@Composable
+private fun SourcesSection(
+    askDelete: (String, String, () -> Unit) -> Unit,
+    ctbcOn: Boolean,
+    onCtbc: (Boolean) -> Unit,
+    walletOn: Boolean,
+    onWallet: (Boolean) -> Unit,
+    sources: List<CustomSource>,
+    onSources: (List<CustomSource>) -> Unit,
+) {
+    val context = LocalContext.current
+    var showAdd by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text("偵測來源", style = MaterialTheme.typography.titleSmall)
-        SourceRow("LINE:中國信託(刷卡通知)", "內建", ctbcOn) {
-            ctbcOn = it; AppSettings.setSourceCtbcEnabled(context, it)
-        }
-        SourceRow("LINE:LINE錢包(付款通知,補 LINE Pay 卡金額)", "內建", walletOn) {
-            walletOn = it; AppSettings.setSourceWalletEnabled(context, it)
-        }
+        Text("偵測來源(目前只讀 LINE)", style = MaterialTheme.typography.titleSmall)
+        SourceRow("LINE:中國信託(刷卡通知)", "內建", ctbcOn, null, onCtbc)
+        SourceRow("LINE:LINE錢包(付款通知,補 LINE Pay 卡金額)", "內建", walletOn, null, onWallet)
         sources.forEach { s ->
             SourceRow(
-                title = "${s.appLabel}:標題含「${s.titleKey}」",
-                sub = "自訂 · 已收進 ${s.count} 筆",
+                title = "LINE:${s.titleKey}",
+                sub = "自訂 · 已收進 ${s.count} 筆" + if (s.textKey.isNotBlank()) " · 內文含「${s.textKey}」" else "",
                 checked = s.enabled,
                 onDelete = {
-                    askDelete("刪除來源「${s.appLabel}」?", "刪除後不再偵測這個來源,已建立的待確認項目不受影響。") {
-                        sources = AppSettings.updateCustomSources(context) { l -> l.filter { it.id != s.id } }
+                    askDelete("刪除來源「${s.titleKey}」?", "刪除後不再偵測這個來源,已建立的待確認項目不受影響。") {
+                        onSources(AppSettings.updateCustomSources(context) { l -> l.filter { it.id != s.id } })
                     }
                 },
             ) { on ->
-                sources = AppSettings.updateCustomSources(context) { l -> l.map { if (it.id == s.id) it.copy(enabled = on) else it } }
+                onSources(AppSettings.updateCustomSources(context) { l -> l.map { if (it.id == s.id) it.copy(enabled = on) else it } })
             }
         }
-        TextButton(onClick = { showAdd = true }) { Text("新增來源") }
+        TextButton(onClick = { showAdd = true }) { Text("新增 LINE 官方帳號") }
     }
 
     if (showAdd) {
-        val recent = remember { AppSettings.recentNotices(context) }
+        val recent = remember {
+            AppSettings.recentNotices(context).filter { it.pkg == com.example.ledger.detect.NoticeParser.LINE_PACKAGE }
+        }
+        var name by remember { mutableStateOf("") }
+        var textKey by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showAdd = false },
-            title = { Text("從最近的通知挑一個") },
+            title = { Text("新增 LINE 官方帳號") },
             text = {
-                Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                Column(
+                    Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("輸入通知上顯示的官方帳號名稱(例如「臺灣銀行」),或從下面最近的 LINE 通知挑一個。標題含有這些字的通知才會處理。")
+                    OutlinedTextField(value = name, onValueChange = { name = it.take(40) }, singleLine = true, label = { Text("官方帳號名稱") })
+                    OutlinedTextField(
+                        value = textKey, onValueChange = { textKey = it.take(20) }, singleLine = true,
+                        label = { Text("內文需包含(選填,例如「消費」)") },
+                    )
+                    Text(
+                        "只收「抓得到金額」的通知,抓不到金額的忽略。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text("最近收到的 LINE 通知標題", style = MaterialTheme.typography.labelLarge)
                     if (recent.isEmpty()) {
-                        Text("還沒有收到任何通知。開啟自動偵測後,等那個 App 發出一則通知(例如刷卡後),再回來這裡挑。")
+                        Text(
+                            "還沒有紀錄。等那個官方帳號發來通知後會出現在這裡,也可以直接輸入名稱。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     } else {
                         Text(
-                            "只列出 App 名稱與標題。LINE 已有內建來源,不會出現在這裡。",
+                            "只存標題(寄件人名稱),可能包含朋友或群組名稱,僅在本機。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         recent.forEach { r ->
-                            Column(
-                                Modifier.fillMaxWidth().clickable { picked = r; showAdd = false }.padding(vertical = 8.dp),
-                            ) {
-                                Text(r.title, style = MaterialTheme.typography.bodyMedium)
-                                Text(r.appLabel, style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+                            Text(
+                                r.title,
+                                Modifier.fillMaxWidth().clickable { name = r.title.take(40) }.padding(vertical = 8.dp),
+                            )
                         }
+                        TextButton(onClick = { AppSettings.clearRecentNotices(context); showAdd = false }) { Text("清除這份清單") }
                     }
                 }
             },
             confirmButton = {
-                if (recent.isNotEmpty()) {
-                    TextButton(onClick = { AppSettings.clearRecentNotices(context); showAdd = false }) { Text("清除這份清單") }
-                }
-            },
-            dismissButton = { TextButton(onClick = { showAdd = false }) { Text("取消") } },
-        )
-    }
-
-    picked?.let { r ->
-        var key by remember(r) { mutableStateOf(r.title) }
-        AlertDialog(
-            onDismissRequest = { picked = null },
-            title = { Text("新增來源:${r.appLabel}") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("標題含有下面這些字的通知才會處理。如果標題每次不同(例如帶金額或店名),請只留固定的字,例如「消費通知」。")
-                    OutlinedTextField(value = key, onValueChange = { key = it }, singleLine = true, label = { Text("標題關鍵字") })
-                    Text(
-                        "這個來源只收「抓得到金額」的通知,抓不到金額的忽略。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(enabled = key.isNotBlank(), onClick = {
-                    sources = AppSettings.updateCustomSources(context) {
-                        it + CustomSource(System.currentTimeMillis().toString(), r.pkg, r.appLabel, key.trim())
-                    }
-                    picked = null
+                TextButton(enabled = name.isNotBlank(), onClick = {
+                    onSources(AppSettings.updateCustomSources(context) {
+                        it + CustomSource(
+                            System.currentTimeMillis().toString(),
+                            com.example.ledger.detect.NoticeParser.LINE_PACKAGE, "LINE", name.trim(),
+                            textKey = textKey.trim(),
+                        )
+                    })
+                    showAdd = false
                 }) { Text("新增") }
             },
-            dismissButton = { TextButton(onClick = { picked = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { showAdd = false }) { Text("取消") } },
         )
     }
 }

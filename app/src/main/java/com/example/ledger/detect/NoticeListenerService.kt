@@ -2,7 +2,6 @@ package com.example.ledger.detect
 
 import android.app.Notification
 import android.content.Context
-import android.content.pm.ApplicationInfo
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationManagerCompat
@@ -25,26 +24,26 @@ class NoticeListenerService : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (!AppSettings.autoDetectEnabled(this)) return
         if (sbn.packageName == packageName) return
-        if (sbn.packageName != NoticeParser.LINE_PACKAGE) {
-            handleOtherApp(sbn)
-            return
-        }
+        if (sbn.packageName != NoticeParser.LINE_PACKAGE) return // 目前只讀 LINE
 
         val extras = sbn.notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
         // 除錯用:只記標題,不記內容
         AppSettings.setLastLineTitle(this, title)
-        if (!NoticeParser.isRelevantSender(title)) return
-        // 群組摘要通知會重複同一則內容,跳過
-        if ((sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
-        // 內建來源可以在設定頁各自關掉
-        if (NoticeParser.isCtbc(title) && !AppSettings.sourceCtbcEnabled(this)) return
-        if (NoticeParser.isWallet(title) && !AppSettings.sourceWalletEnabled(this)) return
-
         val text = listOfNotNull(
             extras.getCharSequence(Notification.EXTRA_TEXT),
             extras.getCharSequence(Notification.EXTRA_BIG_TEXT),
         ).joinToString("\n")
+        // 群組摘要通知會重複同一則內容,跳過
+        if ((sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
+        if (!NoticeParser.isRelevantSender(title)) {
+            handleCustomSender(sbn, title, text)
+            return
+        }
+        // 內建來源可以在設定頁各自關掉
+        if (NoticeParser.isCtbc(title) && !AppSettings.sourceCtbcEnabled(this)) return
+        if (NoticeParser.isWallet(title) && !AppSettings.sourceWalletEnabled(this)) return
+
         val handler = (application as LedgerApp).noticeHandler
         scope.launch {
             val result = runCatching { handler.handle(title, text, sbn.postTime, sbn.key, sbn.notification.`when`) }.getOrNull()
@@ -52,29 +51,19 @@ class NoticeListenerService : NotificationListenerService() {
         }
     }
 
-    /** 其他 App 的通知:先記成「最近通知」(只有 App 與標題)供使用者挑選;符合自訂來源才處理。 */
-    @Suppress("DEPRECATION")
-    private fun handleOtherApp(sbn: StatusBarNotification) {
-        val n = sbn.notification
-        if (sbn.isOngoing || (n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
-        val extras = n.extras
-        val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty().trim()
-        if (title.isEmpty()) return
-        val pkg = sbn.packageName
-        val label = runCatching {
-            extras.getParcelable<ApplicationInfo>("android.appInfo")?.loadLabel(packageManager)?.toString()
-        }.getOrNull()?.takeIf { it.isNotBlank() } ?: pkg
-
+    /** LINE 裡不是內建來源的寄件人:記成「最近的 LINE 通知標題」供挑選;符合自訂來源才處理。 */
+    private fun handleCustomSender(sbn: StatusBarNotification, title: String, text: String) {
+        val clean = title.trim()
+        if (clean.isEmpty()) return
         scope.launch {
-            AppSettings.addRecentNotice(this@NoticeListenerService, RecentNotice(pkg, label, title))
-            val source = CustomSources.match(AppSettings.customSources(this@NoticeListenerService), pkg, title) ?: return@launch
-            val text = listOfNotNull(
-                extras.getCharSequence(Notification.EXTRA_TEXT),
-                extras.getCharSequence(Notification.EXTRA_BIG_TEXT),
-            ).joinToString("\n")
+            AppSettings.addRecentNotice(this@NoticeListenerService, RecentNotice(NoticeParser.LINE_PACKAGE, "LINE", clean))
+            val source = CustomSources.match(
+                AppSettings.customSources(this@NoticeListenerService), NoticeParser.LINE_PACKAGE, clean, text,
+            ) ?: return@launch
             val handler = (application as LedgerApp).noticeHandler
-            val result = runCatching { handler.handleCustom(source, title, text, sbn.postTime, sbn.key) }.getOrNull()
-                ?: return@launch
+            val result = runCatching {
+                handler.handleCustom(source, clean, text, sbn.postTime, sbn.key, sbn.notification.`when`)
+            }.getOrNull() ?: return@launch
             AppSettings.updateCustomSources(this@NoticeListenerService) { CustomSources.bump(it, source.id) }
             AppSettings.setLastDetected(this@NoticeListenerService, result, sbn.postTime)
         }
