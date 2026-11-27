@@ -35,6 +35,8 @@ class NoticeListenerService : NotificationListenerService() {
         // 除錯用:只記標題,不記內容
         AppSettings.setLastLineTitle(this, title)
         if (!NoticeParser.isRelevantSender(title)) return
+        // 群組摘要通知會重複同一則內容,跳過
+        if ((sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
         // 內建來源可以在設定頁各自關掉
         if (NoticeParser.isCtbc(title) && !AppSettings.sourceCtbcEnabled(this)) return
         if (NoticeParser.isWallet(title) && !AppSettings.sourceWalletEnabled(this)) return
@@ -45,7 +47,7 @@ class NoticeListenerService : NotificationListenerService() {
         ).joinToString("\n")
         val handler = (application as LedgerApp).noticeHandler
         scope.launch {
-            val result = runCatching { handler.handle(title, text, sbn.postTime, sbn.key) }.getOrNull()
+            val result = runCatching { handler.handle(title, text, sbn.postTime, sbn.key, sbn.notification.`when`) }.getOrNull()
             if (result != null) AppSettings.setLastDetected(this@NoticeListenerService, result, sbn.postTime)
         }
     }

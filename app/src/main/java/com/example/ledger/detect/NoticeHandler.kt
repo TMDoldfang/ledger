@@ -14,14 +14,23 @@ class NoticeHandler(private val repo: LedgerRepository) {
     private val mutex = Mutex()
     private val orphans = ArrayList<Pairing.WalletNotice>()
     private val seen = ArrayDeque<String>()
+    private val recent = ArrayDeque<String>()
 
     /** @return 一段簡短的處理結果(給設定頁顯示用),不相關的通知回傳 null。 */
-    suspend fun handle(sender: String, text: String, postTime: Long, key: String): String? = mutex.withLock {
+    suspend fun handle(sender: String, text: String, postTime: Long, key: String, whenMs: Long = 0L): String? = mutex.withLock {
         // LINE 可能重複發同一則通知(更新),用 key + 時間去重
         val dedupe = "$key@$postTime"
         if (dedupe in seen) return null
         seen.addLast(dedupe)
         while (seen.size > 50) seen.removeFirst()
+
+        // 同一則通知被重送(發出時間相同)就不重複建立;新的刷卡發出時間一定不同,照常建立
+        val fingerprint = Dedupe.fingerprint(sender, text, whenMs)
+        if (Dedupe.isDuplicate(recent, fingerprint)) return null
+        if (fingerprint != null) {
+            recent.addLast(fingerprint)
+            while (recent.size > 100) recent.removeFirst()
+        }
 
         orphans.removeAll { postTime - it.time > Pairing.WINDOW_MS * 2 }
 

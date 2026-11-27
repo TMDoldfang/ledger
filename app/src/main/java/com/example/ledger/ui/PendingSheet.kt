@@ -33,6 +33,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ledger.data.AccountType
 import com.example.ledger.data.PendingEntry
 import com.example.ledger.detect.DetectedCard
+import com.example.ledger.detect.Dedupe
 import com.example.ledger.detect.NoticeParser
 import com.example.ledger.util.formatMoney
 import com.example.ledger.util.toLocalDate
@@ -100,6 +101,9 @@ fun PendingSheet(
                 onClick = { missingOnly = !missingOnly },
                 label = { Text("待補金額 $missingCount 筆") },
             )
+            val suspects = remember(pending) {
+                Dedupe.suspects(pending.map { Dedupe.Row(it.id, it.card, it.amount, it.timestamp) })
+            }
             val shown = if (missingOnly) pending.filter { it.amount == null } else pending
             if (shown.isEmpty()) {
                 Text(
@@ -123,7 +127,8 @@ fun PendingSheet(
                             )
                             Text(
                                 "通知 ${date.monthValue}/${date.dayOfMonth} %02d:%02d · ".format(dt.hour, dt.minute) +
-                                    (e.amount?.let { formatMoney(it) } ?: "待補金額"),
+                                    (e.amount?.let { formatMoney(it) } ?: "待補金額") +
+                                    if (e.id in suspects) " · 可能重複" else "",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (e.amount == null) MaterialTheme.colorScheme.error
                                 else MaterialTheme.colorScheme.onSurfaceVariant,

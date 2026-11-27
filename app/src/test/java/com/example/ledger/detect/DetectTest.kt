@@ -94,3 +94,30 @@ class PendingScheduleTest {
     @Test fun monthEndRollsOver() =
         assertEquals(LocalDateTime.of(2026, 12, 1, 21, 0), PendingSchedule.nextReminder(LocalDateTime.of(2026, 11, 30, 22, 30)))
 }
+
+class DedupeTest {
+    @Test fun sameWhenIsRepost() {
+        val fp = Dedupe.fingerprint("中國信託", "消費通知", 5_000)
+        assertEquals(true, Dedupe.isDuplicate(listOf(fp!!), Dedupe.fingerprint("中國信託", "消費通知", 5_000)))
+    }
+
+    @Test fun differentWhenIsNewPurchaseEvenSeconds() {
+        val fp = Dedupe.fingerprint("中國信託", "消費通知", 5_000)
+        assertEquals(false, Dedupe.isDuplicate(listOf(fp!!), Dedupe.fingerprint("中國信託", "消費通知", 8_000)))
+    }
+
+    @Test fun noWhenNeverDeduped() {
+        assertEquals(null, Dedupe.fingerprint("中國信託", "消費通知", 0))
+        assertEquals(false, Dedupe.isDuplicate(listOf("x"), null))
+    }
+
+    @Test fun suspectsFlagsSameCardAmountClose() {
+        val rows = listOf(
+            Dedupe.Row(1, "LINE_PAY", 318, 100_000),
+            Dedupe.Row(2, "LINE_PAY", 318, 130_000),
+            Dedupe.Row(3, "LINE_PAY", null, 100_000),
+            Dedupe.Row(4, "LINE_PAY", 318, 100_000 + 10 * 60_000),
+        )
+        assertEquals(setOf(1L, 2L), Dedupe.suspects(rows))
+    }
+}

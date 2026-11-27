@@ -74,3 +74,33 @@ object Pairing {
     fun pickAwaiting(rows: List<AwaitingRow>, walletTime: Long): AwaitingRow? =
         rows.filter { abs(it.time - walletTime) <= WINDOW_MS }.minByOrNull { abs(it.time - walletTime) }
 }
+
+/**
+ * 同一則通知被重複送來(LINE 更新通知等)會讓同一筆消費變成兩筆。
+ * 判斷依據是通知本身的「發出時間」(Notification.when):同一則通知重送時不變,
+ * 新的一次刷卡一定是新的時間。所以內容再像、時間再近,只要發出時間不同就是新的一筆。
+ * 拿不到發出時間(0)就不去重,寧可多一筆也不吃掉真的刷卡。
+ */
+object Dedupe {
+    /** 待確認清單裡,同卡、同金額(或同樣沒金額)、2 分鐘內的項目標示「可能重複」(只標示,不刪除)。 */
+    const val SUSPECT_MS = 2 * 60_000L
+
+    fun fingerprint(sender: String, text: String, whenMs: Long): String? =
+        if (whenMs > 0) "$sender|$text|$whenMs" else null
+
+    fun isDuplicate(history: Collection<String>, fingerprint: String?): Boolean =
+        fingerprint != null && fingerprint in history
+
+    data class Row(val id: Long, val card: String, val amount: Long?, val time: Long)
+
+    fun suspects(rows: List<Row>): Set<Long> {
+        val out = HashSet<Long>()
+        for (i in rows.indices) for (j in i + 1 until rows.size) {
+            val a = rows[i]; val b = rows[j]
+            if (a.card == b.card && a.amount == b.amount && abs(a.time - b.time) <= SUSPECT_MS) {
+                out += a.id; out += b.id
+            }
+        }
+        return out
+    }
+}
