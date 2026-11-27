@@ -42,11 +42,23 @@ object AppSettings {
     fun setBudgetNotified(context: Context, value: String) =
         prefs(context).edit().putString(KEY_BUDGET_NOTIFIED, value).apply()
 
-    // 內建來源(LINE 裡的中國信託、LINE錢包)可以各自關掉,預設都開
-    fun sourceCtbcEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_SRC_CTBC, true)
+    // 內建來源(LINE 裡的中國信託、LINE錢包):新使用者預設沒有任何來源,自己在「新增來源」加入。
+    /** 舊版預設兩個都開。第一次執行新版時,已經開過自動偵測的人把原本的來源明確存下來,不會被清掉。 */
+    fun migrateSources(context: Context) {
+        val p = prefs(context)
+        if (p.getBoolean("sources_migrated", false)) return
+        val e = p.edit()
+        if (p.getBoolean(KEY_AUTO_DETECT, false)) {
+            if (!p.contains(KEY_SRC_CTBC)) e.putBoolean(KEY_SRC_CTBC, true)
+            if (!p.contains(KEY_SRC_WALLET)) e.putBoolean(KEY_SRC_WALLET, true)
+        }
+        e.putBoolean("sources_migrated", true).apply()
+    }
+
+    fun sourceCtbcEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_SRC_CTBC, false)
     fun setSourceCtbcEnabled(context: Context, on: Boolean) =
         prefs(context).edit().putBoolean(KEY_SRC_CTBC, on).apply()
-    fun sourceWalletEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_SRC_WALLET, true)
+    fun sourceWalletEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_SRC_WALLET, false)
     fun setSourceWalletEnabled(context: Context, on: Boolean) =
         prefs(context).edit().putBoolean(KEY_SRC_WALLET, on).apply()
 

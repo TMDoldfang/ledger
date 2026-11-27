@@ -22,6 +22,7 @@ class LedgerApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        com.example.ledger.settings.AppSettings.migrateSources(this)
         // 代墊還沒填「誰欠我」:30 分鐘後提醒
         repository.onNeedsOwedBy = { id -> OwedByReminder.schedule(this, id) }
         // 0050 定期定額:每月 8 號中午檢查,沒記就提醒

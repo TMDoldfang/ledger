@@ -313,12 +313,12 @@ fun SettingsScreen() {
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("• 需要開啟「通知存取權」,系統會再請你授權。")
-                        Text("• 只讀取設定頁「偵測來源」裡開啟的來源,其他通知不看、不存。")
-                        Text("• 目前只讀取 LINE 的通知。新增 LINE 官方帳號作為來源時,App 會把最近收到的 LINE 通知標題(寄件人名稱,可能包含朋友或群組名稱)存在手機本機供你挑選,不存內容、不上傳,可隨時清除。")
-                        Text("• 自訂的官方帳號只收「抓得到金額」的通知,抓不到金額的一律忽略。")
-                        Text("• 如果 LINE 關閉了「顯示訊息內容」,就讀不到金額,只會建立「待補金額」的項目。")
-                        Text("• 自動判斷可能出錯,請定期檢查。")
-                        Text("• 可以隨時關閉,已經記下的帳不受影響。")
+                        Text("• 只讀取下方「偵測來源」清單裡的來源,其他通知不看、不存。")
+                        Text("• 目前只讀 LINE 的通知。新增官方帳號時,會在手機本機暫存最近收到的 LINE 通知標題(寄件人名稱,可能含朋友或群組名稱)供你挑選;只存標題,不存內容,不上傳,可隨時清除。")
+                        Text("• 自訂的官方帳號只收「抓得到金額」的通知,其他一律忽略。")
+                        Text("• 如果 LINE 關閉了「顯示訊息內容」,讀不到金額,只會建立「待補金額」的項目。")
+                        Text("• 自動判斷可能出錯,請定期檢查「待確認」。")
+                        Text("• 可以隨時關閉,已記下的帳不受影響。")
                     }
                 },
                 confirmButton = {
@@ -393,7 +393,7 @@ fun SettingsScreen() {
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 lastTitle?.let {
-                    Text("最近一則 LINE 通知的標題:$it(除錯用,只存標題)", style = MaterialTheme.typography.bodySmall,
+                    Text("最近一則 LINE 通知的標題:$it(只存標題)", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -404,9 +404,9 @@ fun SettingsScreen() {
                 title = { Text("開啟通知存取") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("1. 因為這個 App 不是從 Play 商店安裝的,Android 會先擋住這個權限。請先到「應用程式資訊」,按右上角「⋮」→「允許受限制的設定」。")
+                        Text("1. 這個 App 不是從 Play 商店安裝的,Android 會先擋住這個權限。請先到「應用程式資訊」,按右上角「⋮」→「允許受限制的設定」。")
                         Text("2. 再到「通知存取」,找到本 App 並打開。")
-                        Text("沒有看到「⋮」或「允許受限制的設定」的話,直接做第 2 步即可。")
+                        Text("沒看到「⋮」或「允許受限制的設定」的話,直接做第 2 步即可。")
                         TextButton(onClick = {
                             context.startActivity(
                                 Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
@@ -529,24 +529,19 @@ private fun PlanDialog(initial: InvestPlan?, onDismiss: () -> Unit, onConfirm: (
     )
 }
 
-/** 說明文字會跟著目前開啟的來源變動。 */
+/** 說明文字會跟著目前的來源變動。 */
 private fun autoDetectDescription(ctbcOn: Boolean, walletOn: Boolean, custom: List<CustomSource>): String {
     val names = CustomSources.activeNames(ctbcOn, walletOn, custom)
+    if (names.isEmpty()) return "目前沒有任何偵測來源,不會偵測。請在下方按「新增來源」加入。"
     return buildString {
-        if (names.isEmpty()) {
-            append("目前沒有開啟任何偵測來源,不會偵測。請在下方「偵測來源」打開或新增。")
-            return@buildString
-        }
         append("偵測 LINE 裡這些來源的通知,自動建立記帳項目:\n")
         names.forEach { append("• $it\n") }
-        append("通知有金額就自動填好;")
-        if (ctbcOn) append("中國信託的卡別通知沒有金額時,先建立、金額留空,在設定的時間提醒你補上;")
-        if (custom.any { it.enabled }) append("自訂的官方帳號只收抓得到金額的通知;")
-        append("同一筆消費的多則通知盡量合併。\n建立的項目先放在「待確認」,不算進統計,你按「記帳」之後才會入帳。")
+        append("通知裡有金額就自動填入。\n")
+        append("建立的項目先放在「待確認」,不算進統計,按「記帳」後才會入帳。")
     }
 }
 
-/** 偵測來源:內建來源可開關,自訂來源(LINE 官方帳號名稱)可新增、暫停、刪除。 */
+/** 偵測來源:只有新增與刪除(內建來源也一樣,沒有的可以從「新增來源」加入)。 */
 @Composable
 private fun SourcesSection(
     askDelete: (String, String, () -> Unit) -> Unit,
@@ -562,23 +557,34 @@ private fun SourcesSection(
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text("偵測來源(目前只讀 LINE)", style = MaterialTheme.typography.titleSmall)
-        SourceRow("LINE:中國信託(刷卡通知)", "內建", ctbcOn, null, onCtbc)
-        SourceRow("LINE:LINE錢包(付款通知,補 LINE Pay 卡金額)", "內建", walletOn, null, onWallet)
+        if (!ctbcOn && !walletOn && sources.isEmpty()) {
+            Text(
+                "目前沒有任何來源。按「新增來源」加入。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (ctbcOn) {
+            SourceRow("LINE:中國信託(刷卡通知)", "內建") {
+                askDelete("刪除來源「中國信託」?", "刪除後不再偵測,之後可以從「新增來源」加回來。已建立的待確認項目不受影響。") { onCtbc(false) }
+            }
+        }
+        if (walletOn) {
+            SourceRow("LINE:LINE錢包(付款通知,補 LINE Pay 卡金額)", "內建") {
+                askDelete("刪除來源「LINE錢包」?", "刪除後不再偵測,之後可以從「新增來源」加回來。刪除後,LINE Pay 卡的金額不會再自動補上。") { onWallet(false) }
+            }
+        }
         sources.forEach { s ->
             SourceRow(
                 title = "LINE:${s.titleKey}",
                 sub = "自訂 · 已收進 ${s.count} 筆" + if (s.textKey.isNotBlank()) " · 內文含「${s.textKey}」" else "",
-                checked = s.enabled,
-                onDelete = {
-                    askDelete("刪除來源「${s.titleKey}」?", "刪除後不再偵測這個來源,已建立的待確認項目不受影響。") {
-                        onSources(AppSettings.updateCustomSources(context) { l -> l.filter { it.id != s.id } })
-                    }
-                },
-            ) { on ->
-                onSources(AppSettings.updateCustomSources(context) { l -> l.map { if (it.id == s.id) it.copy(enabled = on) else it } })
+            ) {
+                askDelete("刪除來源「${s.titleKey}」?", "刪除後不再偵測,已建立的待確認項目不受影響。") {
+                    onSources(AppSettings.updateCustomSources(context) { l -> l.filter { it.id != s.id } })
+                }
             }
         }
-        TextButton(onClick = { showAdd = true }) { Text("新增 LINE 官方帳號") }
+        TextButton(onClick = { showAdd = true }) { Text("新增來源") }
     }
 
     if (showAdd) {
@@ -589,33 +595,39 @@ private fun SourcesSection(
         var textKey by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showAdd = false },
-            title = { Text("新增 LINE 官方帳號") },
+            title = { Text("新增來源") },
             text = {
                 Column(
                     Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("輸入通知上顯示的官方帳號名稱(例如「臺灣銀行」),或從下面最近的 LINE 通知挑一個。標題含有這些字的通知才會處理。")
+                    if (!ctbcOn || !walletOn) {
+                        Text("加入內建來源", style = MaterialTheme.typography.labelLarge)
+                        if (!ctbcOn) TextButton(onClick = { onCtbc(true); showAdd = false }) { Text("LINE 中國信託(刷卡通知)") }
+                        if (!walletOn) TextButton(onClick = { onWallet(true); showAdd = false }) { Text("LINE錢包(付款通知)") }
+                        Text("新增其他 LINE 官方帳號", style = MaterialTheme.typography.labelLarge)
+                    }
+                    Text("輸入通知上顯示的官方帳號名稱(例如「臺灣銀行」),或從下面挑一個。通知標題含有這些字,才會處理。")
                     OutlinedTextField(value = name, onValueChange = { name = it.take(40) }, singleLine = true, label = { Text("官方帳號名稱") })
                     OutlinedTextField(
                         value = textKey, onValueChange = { textKey = it.take(20) }, singleLine = true,
                         label = { Text("內文需包含(選填,例如「消費」)") },
                     )
                     Text(
-                        "只收「抓得到金額」的通知,抓不到金額的忽略。",
+                        "只收「抓得到金額」的通知,抓不到金額的會忽略。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text("最近收到的 LINE 通知標題", style = MaterialTheme.typography.labelLarge)
                     if (recent.isEmpty()) {
                         Text(
-                            "還沒有紀錄。等那個官方帳號發來通知後會出現在這裡,也可以直接輸入名稱。",
+                            "還沒有紀錄。那個官方帳號發來通知後會出現在這裡,也可以直接輸入名稱。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     } else {
                         Text(
-                            "只存標題(寄件人名稱),可能包含朋友或群組名稱,僅在本機。",
+                            "只存標題(寄件人名稱),可能含朋友或群組名稱,僅存在本機。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -647,19 +659,12 @@ private fun SourcesSection(
 }
 
 @Composable
-private fun SourceRow(
-    title: String,
-    sub: String,
-    checked: Boolean,
-    onDelete: (() -> Unit)? = null,
-    onCheckedChange: (Boolean) -> Unit,
-) {
+private fun SourceRow(title: String, sub: String, onDelete: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).padding(end = 8.dp)) {
             Text(title, style = MaterialTheme.typography.bodyMedium)
             Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (onDelete != null) TextButton(onClick = onDelete) { Text("刪除") }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        TextButton(onClick = onDelete) { Text("刪除") }
     }
 }
